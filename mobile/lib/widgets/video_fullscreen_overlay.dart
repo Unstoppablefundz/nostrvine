@@ -24,11 +24,15 @@ class VideoFullscreenOverlay extends ConsumerStatefulWidget {
     super.key,
     this.onSwipeNext,
     this.onSwipePrevious,
+    this.isFromProfile = false,
+    this.profilePubkey,
   });
   final VideoEvent video;
   final VoidCallback onClose;
   final VoidCallback? onSwipeNext;
   final VoidCallback? onSwipePrevious;
+  final bool isFromProfile;
+  final String? profilePubkey;
 
   @override
   ConsumerState<VideoFullscreenOverlay> createState() => _VideoFullscreenOverlayState();
@@ -452,10 +456,16 @@ class _VideoFullscreenOverlayState extends ConsumerState<VideoFullscreenOverlay>
                     Log.verbose('Navigating to profile: ${widget.video.pubkey}',
                         name: 'VideoFullscreenOverlay',
                         category: LogCategory.ui);
-                    // Close the overlay first
-                    widget.onClose();
-                    // Use main navigation to switch to profile tab
-                    mainNavigationKey.currentState?.navigateToProfile(widget.video.pubkey);
+                    
+                    // If we're viewing from a profile and tapping on the same profile,
+                    // just close the overlay to go back
+                    if (widget.isFromProfile && widget.profilePubkey == widget.video.pubkey) {
+                      widget.onClose();
+                    } else {
+                      // Otherwise navigate to the profile
+                      widget.onClose();
+                      mainNavigationKey.currentState?.navigateToProfile(widget.video.pubkey);
+                    }
                   },
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

@@ -1910,9 +1910,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   void _openVine(VideoEvent videoEvent) {
-    setState(() {
-      _playingVideoId = videoEvent.id;
-    });
+    final profileVideosState = ref.read(profileVideosNotifierProvider);
+    final videoIndex = profileVideosState.videos.indexOf(videoEvent);
+    
+    if (videoIndex != -1) {
+      _showVideoPageView(videoIndex, profileVideosState.videos);
+    }
+  }
+  
+  void _showVideoPageView(int initialIndex, List<VideoEvent> videos) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: true,
+        pageBuilder: (context, animation, secondaryAnimation) => _ProfileVideoPageView(
+          videos: videos,
+          initialIndex: initialIndex,
+          profilePubkey: _targetPubkey!,
+          onVideoChanged: (videoId) {
+            setState(() {
+              _playingVideoId = videoId;
+            });
+          },
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+      ),
+    );
   }
 
   void _navigateToNextVideo() {
@@ -1940,6 +1967,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   void _openLikedVideo(VideoEvent videoEvent) {
+    // For liked videos, we'll show them individually since they might not be sequential
     setState(() {
       _playingVideoId = videoEvent.id;
     });
@@ -2770,4 +2798,96 @@ class _StickyTabBarDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(_StickyTabBarDelegate oldDelegate) =>
       tabBar != oldDelegate.tabBar;
+}
+
+/// PageView widget for smooth video transitions when viewing from profile
+class _ProfileVideoPageView extends ConsumerStatefulWidget {
+  const _ProfileVideoPageView({
+    required this.videos,
+    required this.initialIndex,
+    required this.profilePubkey,
+    required this.onVideoChanged,
+  });
+
+  final List<VideoEvent> videos;
+  final int initialIndex;
+  final String profilePubkey;
+  final Function(String) onVideoChanged;
+
+  @override
+  ConsumerState<_ProfileVideoPageView> createState() => _ProfileVideoPageViewState();
+}
+
+class _ProfileVideoPageViewState extends ConsumerState<_ProfileVideoPageView> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _onPageChanged(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+    widget.onVideoChanged(widget.videos[index].id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            onPageChanged: _onPageChanged,
+            itemCount: widget.videos.length,
+            scrollDirection: Axis.vertical,
+            pageSnapping: true,
+            itemBuilder: (context, index) {
+              final video = widget.videos[index];
+              return VideoFullscreenOverlay(
+                video: video,
+                onClose: () => Navigator.of(context).pop(),
+                onSwipeNext: null, // Handled by PageView
+                onSwipePrevious: null, // Handled by PageView
+                isFromProfile: true,
+                profilePubkey: widget.profilePubkey,
+              );
+            },
+          ),
+          // Page indicator
+          Positioned(
+            right: 16,
+            top: MediaQuery.of(context).padding.top + 60,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${_currentIndex + 1} / ${widget.videos.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
