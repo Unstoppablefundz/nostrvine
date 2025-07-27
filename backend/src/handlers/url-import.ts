@@ -168,7 +168,7 @@ export async function handleURLImport(
               ['x', sha256Hash],
               ['size', actualSize.toString()],
               ['m', contentType],
-              ['dim', '1280x720'], // TODO: Get actual dimensions
+              ['dim', '640x640'], // Vines are square
               ['alt', importRequest.alt || `Video imported from ${videoUrl.hostname}`]
             ],
             content: importRequest.caption || ''
@@ -203,7 +203,7 @@ export async function handleURLImport(
         env
       );
 
-      if (cloudinaryResponse.success) {
+      if (cloudinaryResponse.success && cloudinaryResponse.url) {
         // Store minimal metadata pointing to Cloudinary
         if (env.METADATA_CACHE) {
           const metadata: FileMetadata = {
@@ -215,10 +215,8 @@ export async function handleURLImport(
             uploaded_at: Date.now(),
             uploader_pubkey: authResult.pubkey,
             url: cloudinaryResponse.url,
-            dimensions: { width: cloudinaryResponse.width || 1280, height: cloudinaryResponse.height || 720 },
-            original_url: videoUrl.href,
-            cloudinary_public_id: cloudinaryResponse.public_id,
-            processing_status: 'processing'
+            dimensions: `${cloudinaryResponse.width || 640}x${cloudinaryResponse.height || 640}`,
+            moderation_status: 'pending'
           };
 
           const metadataStore = new MetadataStore(env.METADATA_CACHE);
@@ -239,7 +237,7 @@ export async function handleURLImport(
 
     // Trigger thumbnail generation in the background
     if (!importRequest.useCloudinary) {
-      ctx.waitUntil(triggerThumbnailGeneration(fileId, request.url));
+      ctx.waitUntil(triggerThumbnailGeneration(fileId, new URL(request.url).origin));
     }
     
     const response: NIP96UploadResponse = {
@@ -254,7 +252,7 @@ export async function handleURLImport(
           ['x', sha256Hash],
           ['size', actualSize.toString()],
           ['m', contentType],
-          ['dim', '1280x720'], // TODO: Get actual dimensions
+          ['dim', '640x640'], // Vines are square
           ['alt', importRequest.alt || `Video imported from ${videoUrl.hostname}`]
         ],
         content: importRequest.caption || ''
@@ -313,4 +311,183 @@ function createErrorResponse(
       'Access-Control-Allow-Origin': '*'
     }
   });
+}
+
+/**
+ * Store video directly in R2
+ */
+async function storeInR2(
+  fileData: ArrayBuffer,
+  fileId: string,
+  filename: string,
+  contentType: string,
+  sha256Hash: string,
+  originalUrl: string,
+  uploaderPubkey: string,
+  env: Env,
+  request: Request
+): Promise<string> {
+  const r2Key = `uploads/${fileId}`;
+  await env.MEDIA_BUCKET.put(r2Key, fileData, {
+    httpMetadata: {
+      contentType: contentType,
+      contentDisposition: `inline; filename="${filename}"`
+    },
+    customMetadata: {
+      sha256: sha256Hash,
+      originalUrl: originalUrl,
+      uploaderPubkey: uploaderPubkey,
+      uploadedAt: Date.now().toString(),
+      source: 'url-import'
+    }
+  });
+
+  console.log(`✅ Video stored in R2: ${r2Key}`);
+
+  // Store metadata
+  if (env.METADATA_CACHE) {
+    const metadata: FileMetadata = {
+      id: fileId,
+      filename: filename,
+      content_type: contentType,
+      size: fileData.byteLength,
+      sha256: sha256Hash,
+      uploaded_at: Date.now(),
+      uploader_pubkey: uploaderPubkey,
+      url: `${new URL(request.url).origin}/media/${fileId}`,
+      dimensions: '640x640' // Vines are square
+    };
+
+    const metadataStore = new MetadataStore(env.METADATA_CACHE);
+    await metadataStore.setMetadata(fileId, metadata);
+    await metadataStore.setSha256Mapping(sha256Hash, fileId);
+  }
+
+  return `${new URL(request.url).origin}/media/${fileId}`;
+}
+
+/**
+ * Upload video to Cloudinary for processing
+ */
+async function uploadToCloudinary(
+  fileData: ArrayBuffer,
+  filename: string,
+  contentType: string,
+  uploaderPubkey: string,
+  env: Env
+): Promise<{
+  success: boolean;
+  url?: string;
+  public_id?: string;
+  width?: number;
+  height?: number;
+  error?: string;
+}> {
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const publicId = `nostrvine/${uploaderPubkey.substring(0, 16)}/${timestamp}_${filename.replace(/\.[^/.]+$/, '')}`;
+
+    // Create upload parameters
+    const params = {
+      timestamp: timestamp,
+      public_id: publicId,
+      folder: 'nostrvine',
+      resource_type: 'video',
+      type: 'upload',
+      // Enable moderation
+      moderation: 'aws_rek_video',
+      // Eager transformations for thumbnails (square for Vines)
+      eager: [
+        { width: 320, height: 320, crop: 'fill', quality: 'auto', format: 'jpg' },
+        { width: 640, height: 640, crop: 'fill', quality: 'auto', format: 'jpg' },
+        { width: 1280, height: 1280, crop: 'fill', quality: 'auto', format: 'jpg' }
+      ],
+      eager_async: true,
+      context: `pubkey=${uploaderPubkey}|app=nostrvine|source=url-import`
+    };
+
+    // Generate signature
+    const paramsToSign = Object.keys(params)
+      .filter(k => k !== 'file' && k !== 'api_key' && k !== 'resource_type' && k !== 'eager')
+      .sort()
+      .map(k => `${k}=${params[k]}`)
+      .join('&');
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(paramsToSign + (env as any).CLOUDINARY_API_SECRET);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+    const signature = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('file', new Blob([fileData], { type: contentType }), filename);
+    formData.append('api_key', env.CLOUDINARY_API_KEY);
+    formData.append('timestamp', timestamp.toString());
+    formData.append('signature', signature);
+    formData.append('public_id', publicId);
+    formData.append('folder', 'nostrvine');
+    formData.append('resource_type', 'video');
+    formData.append('moderation', 'aws_rek_video');
+    formData.append('eager', JSON.stringify(params.eager));
+    formData.append('eager_async', 'true');
+    formData.append('context', params.context);
+
+    // Upload to Cloudinary
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/video/upload`,
+      {
+        method: 'POST',
+        body: formData
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Cloudinary upload failed:', error);
+      return { success: false, error };
+    }
+
+    const result = await response.json();
+    console.log(`✅ Video uploaded to Cloudinary: ${result.public_id}`);
+
+    return {
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+      width: result.width,
+      height: result.height
+    };
+
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Trigger thumbnail generation by calling our own endpoint
+ */
+async function triggerThumbnailGeneration(videoId: string, baseUrl: string): Promise<void> {
+  try {
+    console.log(`🖼️ Triggering thumbnail generation for ${videoId}`);
+    
+    // Request medium size thumbnail which will generate it if not exists
+    const thumbnailUrl = `${baseUrl}/thumbnail/${videoId}?size=medium&timestamp=1`;
+    const response = await fetch(thumbnailUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'OpenVine-Internal/1.0'
+      }
+    });
+
+    if (response.ok) {
+      console.log(`✅ Thumbnail generation triggered for ${videoId}`);
+    } else {
+      console.warn(`⚠️ Thumbnail generation failed for ${videoId}: ${response.status}`);
+    }
+  } catch (error) {
+    console.error(`❌ Failed to trigger thumbnail generation for ${videoId}:`, error);
+  }
 }
