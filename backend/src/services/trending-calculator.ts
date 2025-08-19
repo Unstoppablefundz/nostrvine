@@ -12,10 +12,12 @@ export function calculateTrendingScore(viewData: ViewData, currentTime: number):
 export async function calculateTrending(env: AnalyticsEnv): Promise<TrendingData> {
   const minViews = parseInt(env.MIN_VIEWS_FOR_TRENDING || '3'); // Increased threshold for performance
   const videos: TrendingVideo[] = [];
+  const now = Date.now();
+  const maxAge = 7 * 24 * 60 * 60 * 1000; // Only consider videos viewed in last 7 days
   
   try {
     // List view entries with a reasonable limit to prevent timeouts
-    const list = await env.ANALYTICS_KV.list({ prefix: 'views:', limit: 50 }); // Further reduced limit for speed
+    const list = await env.ANALYTICS_KV.list({ prefix: 'views:', limit: 200 }); // Increased limit to find more recent videos
     
     // Batch fetch to reduce KV round trips
     const promises = list.keys.map(async (key) => {
@@ -27,8 +29,15 @@ export async function calculateTrending(env: AnalyticsEnv): Promise<TrendingData
           return null;
         }
         
+        // Filter out videos that haven't been viewed recently
+        const timeSinceLastView = now - viewData.lastUpdate;
+        if (timeSinceLastView > maxAge) {
+          console.log(`Skipping old video ${eventId} - last viewed ${Math.floor(timeSinceLastView / (24 * 60 * 60 * 1000))} days ago`);
+          return null;
+        }
+        
         // Calculate trending score using the exported function
-        const score = calculateTrendingScore(viewData, Date.now());
+        const score = calculateTrendingScore(viewData, now);
         
         return {
           eventId,

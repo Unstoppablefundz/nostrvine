@@ -58,6 +58,7 @@ class HomeFeed extends _$HomeFeed {
     final videoEventService = ref.watch(videoEventServiceProvider);
     
     // Subscribe to home feed videos from followed authors using dedicated subscription type
+    // NostrService now handles deduplication automatically
     await videoEventService.subscribeToHomeFeed(followingPubkeys, limit: 100);
     
     // Give a moment for the subscription to establish and receive initial events

@@ -36,29 +36,28 @@ export class TrendingAnalyticsEngineService {
    * viral_score = sqrt(views) * avg_completion * (1 + log2(unique_viewers))
    */
   async getTrendingVideos(
-    window: '1h' | '24h' | '7d' = '24h',
+    window: '1h' | '24h' | '7d' | 'all' = '24h',
     limit: number = 50
   ): Promise<TrendingVideo[]> {
-    // Map window to SQL interval
-    const windowMap = {
-      '1h': '1 HOUR',
-      '24h': '1 DAY',
-      '7d': '7 DAY'
-    };
+    // Map window to SQL interval string (100 years for 'all')
+    const intervalStr = window === '1h' ? '1 HOUR' : 
+                       window === '7d' ? '7 DAY' : 
+                       window === 'all' ? '36500 DAY' : '1 DAY';
 
     const query = `
       WITH metrics AS (
         SELECT
           blob1 AS video_id,
           SUM(double1 * toUInt32(_sample_interval)) AS views,
-          uniqExact(blob2) AS unique_viewers,
+          COUNT(DISTINCT blob2) AS unique_viewers,
           AVG(double4) AS avg_completion,
           MAX(blob9) AS title,
           MAX(blob7) AS creator_pubkey,
           MAX(blob8) AS hashtags
         FROM nostrvine_video_views
         WHERE blob5 = 'view_end'
-          AND toDateTime(double8/1000) >= now() - INTERVAL ${windowMap[window]}
+          AND toDateTime(double8/1000) >= now() - INTERVAL '${intervalStr}'
+          AND double8 >= ${Date.now() - 24 * 60 * 60 * 1000}
         GROUP BY video_id
       )
       SELECT
@@ -101,11 +100,7 @@ export class TrendingAnalyticsEngineService {
     window: '1h' | '24h' | '7d' = '24h',
     limit: number = 100
   ): Promise<TrendingHashtag[]> {
-    const windowMap = {
-      '1h': '1 HOUR',
-      '24h': '1 DAY',
-      '7d': '7 DAY'
-    };
+    const intervalStr = window === '1h' ? '1 HOUR' : window === '7d' ? '7 DAY' : '1 DAY';
 
     const query = `
       WITH tag_views AS (
@@ -116,7 +111,7 @@ export class TrendingAnalyticsEngineService {
           blob1 AS video_id
         FROM nostrvine_video_views
         WHERE blob5 = 'view_end'
-          AND toDateTime(double8/1000) >= now() - INTERVAL ${windowMap[window]}
+          AND toDateTime(double8/1000) >= now() - INTERVAL '${intervalStr}'
           AND length(blob8) > 0
       )
       SELECT
@@ -167,7 +162,7 @@ export class TrendingAnalyticsEngineService {
         WHERE blob5 = 'view_end'
           AND length(blob8) > 0
           AND blob1 != '${seedVideoId}'
-          AND toDateTime(double8/1000) >= now() - INTERVAL 30 DAY
+          AND toDateTime(double8/1000) >= now() - INTERVAL '30 DAY'
         GROUP BY video_id, blob8
       )
       SELECT
@@ -204,11 +199,7 @@ export class TrendingAnalyticsEngineService {
     window: '1h' | '24h' | '7d' = '24h',
     limit: number = 40
   ): Promise<{ videoId: string; coWatchers: number }[]> {
-    const windowMap = {
-      '1h': '1 HOUR',
-      '24h': '1 DAY',
-      '7d': '7 DAY'
-    };
+    const intervalStr = window === '1h' ? '1 HOUR' : window === '7d' ? '7 DAY' : '1 DAY';
 
     const query = `
       WITH view_sessions AS (
@@ -218,7 +209,7 @@ export class TrendingAnalyticsEngineService {
           MAX(double8) AS ts
         FROM nostrvine_video_views
         WHERE blob5 = 'view_start'
-          AND toDateTime(double8/1000) >= now() - INTERVAL ${windowMap[window]}
+          AND toDateTime(double8/1000) >= now() - INTERVAL '${intervalStr}'
           AND blob2 != 'anonymous'
         GROUP BY user_id, video_id
       ),
@@ -257,23 +248,19 @@ export class TrendingAnalyticsEngineService {
     window: '24h' | '7d' | '30d' = '7d',
     limit: number = 50
   ): Promise<any[]> {
-    const windowMap = {
-      '24h': '1 DAY',
-      '7d': '7 DAY',
-      '30d': '30 DAY'
-    };
+    const intervalStr = window === '24h' ? '1 DAY' : window === '30d' ? '30 DAY' : '7 DAY';
 
     const query = `
       SELECT
         blob7 AS creatorPubkey,
         COUNT(DISTINCT blob1) AS videoCount,
         SUM(double1 * toUInt32(_sample_interval)) AS totalViews,
-        uniqExact(blob2) AS uniqueViewers,
+        COUNT(DISTINCT blob2) AS uniqueViewers,
         AVG(double4) AS avgCompletion,
         SUM(double3 * toUInt32(_sample_interval)) AS totalLoops
       FROM nostrvine_video_views
       WHERE blob5 = 'view_end'
-        AND toDateTime(double8/1000) >= now() - INTERVAL ${windowMap[window]}
+        AND toDateTime(double8/1000) >= now() - INTERVAL '${intervalStr}'
         AND blob7 != 'unknown'
       GROUP BY creatorPubkey
       ORDER BY totalViews DESC
@@ -340,10 +327,11 @@ export class TrendingAnalyticsEngineService {
   async cacheTrendingData(): Promise<void> {
     try {
       // Calculate trending for all time windows
-      const [trending1h, trending24h, trending7d] = await Promise.all([
+      const [trending1h, trending24h, trending7d, trendingAll] = await Promise.all([
         this.getTrendingVideos('1h', 50),
         this.getTrendingVideos('24h', 100),
-        this.getTrendingVideos('7d', 200)
+        this.getTrendingVideos('7d', 200),
+        this.getTrendingVideos('all', 500)
       ]);
 
       // Cache in KV with 5-minute TTL
@@ -363,6 +351,11 @@ export class TrendingAnalyticsEngineService {
           'trending:7d',
           JSON.stringify(trending7d),
           { expirationTtl: ttl }
+        ),
+        this.env.ANALYTICS_KV.put(
+          'trending:all',
+          JSON.stringify(trendingAll),
+          { expirationTtl: ttl }
         )
       ]);
 
@@ -375,7 +368,7 @@ export class TrendingAnalyticsEngineService {
   /**
    * Get cached trending data (for < 500ms response time)
    */
-  async getCachedTrending(window: '1h' | '24h' | '7d' = '24h'): Promise<TrendingVideo[]> {
+  async getCachedTrending(window: '1h' | '24h' | '7d' | 'all' = '24h'): Promise<TrendingVideo[]> {
     try {
       const cached = await this.env.ANALYTICS_KV.get(`trending:${window}`);
       if (cached) {

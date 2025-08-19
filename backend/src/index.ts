@@ -81,6 +81,8 @@ import { handleHashtagTrending } from './handlers/hashtag-trending';
 import { handleVelocityTrending } from './handlers/velocity-trending';
 import { calculateTrending } from './services/trending-calculator';
 import { handleAnalyticsCleanup } from './handlers/analytics-cleanup';
+import { handleAggressiveAnalyticsCleanup } from './handlers/analytics-aggressive-cleanup';
+import { handleTestAnalytics } from './handlers/test-analytics';
 import type { AnalyticsEnv } from './types/analytics';
 
 // Event mapping API
@@ -325,7 +327,7 @@ export default {
 			// GET /analytics/trending/vines - Get trending vines (videos)
 			if (pathname === '/analytics/trending/vines' && method === 'GET') {
 				const analyticsEnv = env as unknown as AnalyticsEnv;
-				return wrapResponse(handleTrendingVines(request, analyticsEnv));
+				return wrapResponse(handleTrendingVines(request, analyticsEnv, ctx));
 			}
 
 			// GET /analytics/trending/viners - Get trending viners (creators)
@@ -382,6 +384,17 @@ export default {
 			if (pathname === '/analytics/cleanup' && method === 'POST') {
 				const analyticsEnv = env as unknown as AnalyticsEnv;
 				return wrapResponse(handleAnalyticsCleanup(request, analyticsEnv));
+			}
+
+			// GET /analytics/cleanup/aggressive - Aggressive cleanup of ALL analytics data
+			if (pathname === '/analytics/cleanup/aggressive' && method === 'GET') {
+				const analyticsEnv = env as unknown as AnalyticsEnv;
+				return wrapResponse(handleAggressiveAnalyticsCleanup(request, analyticsEnv));
+			}
+
+			// GET /analytics/test - Test Analytics Engine writes
+			if (pathname === '/analytics/test' && method === 'GET') {
+				return wrapResponse(handleTestAnalytics(request, env));
 			}
 
 			// Analytics health check endpoint

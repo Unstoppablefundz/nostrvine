@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:openvine/main.dart';
 import 'package:openvine/models/pending_upload.dart';
 import 'package:openvine/providers/app_providers.dart';
+import 'package:openvine/providers/profile_videos_provider.dart';
 import 'package:openvine/providers/video_manager_providers.dart';
 import 'package:openvine/services/video_manager_interface.dart';
 import 'package:openvine/theme/vine_theme.dart';
@@ -680,6 +681,9 @@ class _VideoMetadataScreenState extends ConsumerState<VideoMetadataScreen> {
   /// Start upload immediately in the background
   Future<void> _startBackgroundUpload() async {
     try {
+      Log.info('Starting background upload for video: ${widget.videoFile.path}',
+          name: 'VideoMetadataScreen', category: LogCategory.ui);
+      
       final uploadManager = ref.read(uploadManagerProvider);
       final authService = ref.read(authServiceProvider);
 
@@ -712,13 +716,30 @@ class _VideoMetadataScreenState extends ConsumerState<VideoMetadataScreen> {
 
       setState(() {
         _currentUploadId = upload.id;
+        Log.info('🆔 Current upload ID set to: $_currentUploadId',
+            name: 'VideoMetadataScreen', category: LogCategory.ui);
       });
 
-      Log.info('Background upload started: ${upload.id}',
+      Log.info('✅ === BACKGROUND UPLOAD COMPLETE ===',
+          name: 'VideoMetadataScreen', category: LogCategory.ui);
+      Log.info('🆔 Upload ID: ${upload.id}',
           name: 'VideoMetadataScreen', category: LogCategory.ui);
     } catch (e) {
-      Log.error('Failed to start background upload: $e',
+      Log.error('❌ === BACKGROUND UPLOAD FAILED ===',
           name: 'VideoMetadataScreen', category: LogCategory.ui);
+      Log.error('❌ Error: $e',
+          name: 'VideoMetadataScreen', category: LogCategory.ui);
+      
+      // Check if it's a file issue
+      if (widget.videoFile.existsSync()) {
+        Log.error('📁 File exists but upload failed anyway',
+            name: 'VideoMetadataScreen', category: LogCategory.ui);
+      } else {
+        Log.error('📁 File does not exist!',
+            name: 'VideoMetadataScreen', category: LogCategory.ui);
+      }
+      // Don't show error here - let the publish button handle it
+      // This allows the user to retry by hitting publish
     }
   }
 
@@ -750,31 +771,90 @@ class _VideoMetadataScreenState extends ConsumerState<VideoMetadataScreen> {
     });
 
     try {
+      // If upload hasn't started, start it now
+      if (_currentUploadId == null) {
+        Log.info('Upload not started yet, starting now...',
+            name: 'VideoMetadataScreen', category: LogCategory.ui);
+        await _startBackgroundUpload();
+        
+        // Check if it succeeded
+        if (_currentUploadId == null) {
+          throw Exception('Failed to start upload. Please check your connection and try again.');
+        }
+      }
+      
       // Get the current upload
       final uploadManager = ref.read(uploadManagerProvider);
-      final upload = uploadManager.getUpload(_currentUploadId!);
+      var upload = uploadManager.getUpload(_currentUploadId!);
       
       if (upload == null) {
         throw Exception('Upload not found');
       }
 
-      // Wait for upload to be ready if still uploading
+      // If still uploading, update metadata and wait for completion
       if (upload.status == UploadStatus.uploading || 
           upload.status == UploadStatus.processing) {
+        Log.info('Upload in progress, will publish when ready...',
+            name: 'VideoMetadataScreen', category: LogCategory.ui);
+        
+        // Update metadata while uploading
+        await uploadManager.updateUploadMetadata(
+          _currentUploadId!,
+          title: title,
+          description: _descriptionController.text.trim(),
+          hashtags: allHashtags,
+        );
+        
+        // Show progress indicator
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Please wait for upload to complete'),
-            backgroundColor: Colors.orange,
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Uploading and publishing...'),
+              ],
+            ),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 10),
           ),
         );
-        setState(() {
-          _isPublishing = false;
-        });
-        return;
+        
+        // Wait for upload to complete
+        int waitCount = 0;
+        while (upload?.status == UploadStatus.uploading || 
+               upload?.status == UploadStatus.processing) {
+          await Future.delayed(const Duration(seconds: 1));
+          waitCount++;
+          
+          // Timeout after 60 seconds
+          if (waitCount > 60) {
+            throw Exception('Upload timeout. Please try again.');
+          }
+          
+          // Refresh upload status
+          final updatedUpload = uploadManager.getUpload(_currentUploadId!);
+          if (updatedUpload == null) {
+            throw Exception('Upload lost');
+          }
+          upload = updatedUpload;
+        }
       }
 
-      if (upload.status != UploadStatus.readyToPublish) {
-        throw Exception('Upload not ready for publishing: ${upload.status}');
+      if (upload?.status == UploadStatus.failed) {
+        throw Exception('Upload failed: ${upload?.errorMessage ?? "Unknown error"}');
+      }
+
+      if (upload?.status != UploadStatus.readyToPublish && 
+          upload?.status != UploadStatus.published) {
+        throw Exception('Upload not ready for publishing: ${upload?.status}');
       }
 
       // Get the video event publisher and publish
@@ -784,7 +864,7 @@ class _VideoMetadataScreenState extends ConsumerState<VideoMetadataScreen> {
           name: 'VideoMetadataScreen', category: LogCategory.ui);
       
       final success = await videoEventPublisher.publishVideoEvent(
-        upload: upload,
+        upload: upload!,
         title: title,
         description: _descriptionController.text.trim(),
         hashtags: allHashtags,
@@ -803,15 +883,22 @@ class _VideoMetadataScreenState extends ConsumerState<VideoMetadataScreen> {
         // Show success message first
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Video published successfully!'),
+            content: Text('Video published successfully! 🎉'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
           ),
         );
         
-        // Navigate to profile tab (index 4)
+        // Clear profile videos cache to force refresh when profile loads
+        clearAllProfileVideosCache();
+        
+        // Force refresh of profile videos provider
+        ref.invalidate(profileVideosNotifierProvider);
+        
+        // Navigate to profile tab (index 3) to show user their new video
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (context) => const MainNavigationScreen(initialTabIndex: 4),
+            builder: (context) => const MainNavigationScreen(initialTabIndex: 3),
           ),
           (route) => false,
         );

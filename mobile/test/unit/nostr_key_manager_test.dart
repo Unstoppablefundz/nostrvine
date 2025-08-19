@@ -5,9 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openvine/services/nostr_key_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import '../test_setup.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  // Set up test environment with mocked platform channels
+  setupTestEnvironment();
 
   group('NostrKeyManager Unit Tests', () {
     late NostrKeyManager keyManager;

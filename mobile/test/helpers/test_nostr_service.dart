@@ -185,6 +185,36 @@ class TestNostrService implements INostrService {
   }
 
   @override
+  Future<List<Event>> getEvents({
+    required List<Filter> filters,
+    int? limit,
+  }) async {
+    final matchingEvents = <Event>[];
+    
+    for (final event in _storedEvents) {
+      bool matches = false;
+      for (final filter in filters) {
+        if (filter.kinds != null && !filter.kinds!.contains(event.kind)) {
+          continue;
+        }
+        if (filter.authors != null && !filter.authors!.contains(event.pubkey)) {
+          continue;
+        }
+        matches = true;
+        break;
+      }
+      if (matches) {
+        matchingEvents.add(event);
+        if (limit != null && matchingEvents.length >= limit) {
+          break;
+        }
+      }
+    }
+    
+    return matchingEvents;
+  }
+
+  @override
   Future<void> closeAllSubscriptions() async {
     for (final controller in _subscriptions.values) {
       if (!controller.isClosed) {

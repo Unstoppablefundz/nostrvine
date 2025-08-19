@@ -12,6 +12,7 @@ import 'package:openvine/services/nostr_key_manager.dart';
 import 'package:openvine/services/nostr_service_interface.dart';
 import 'package:openvine/services/p2p_discovery_service.dart';
 import 'package:openvine/services/p2p_video_sync_service.dart';
+import 'package:openvine/utils/unified_logger.dart';
 
 /// Production implementation of NostrService using EmbeddedNostrRelay directly
 /// Manages external relay connections and provides unified API to the app
@@ -40,7 +41,7 @@ class NostrService implements INostrService {
     if (_isDisposed) throw StateError('NostrService is disposed');
     if (_isInitialized) return; // Already initialized
     
-    print('NostrService: Starting initialization with embedded relay');
+    Log.info('Starting initialization with embedded relay', name: 'NostrService', category: LogCategory.relay);
     
     try {
       // Initialize embedded relay
@@ -48,7 +49,7 @@ class NostrService implements INostrService {
       await _embeddedRelay!.initialize(
         enableGarbageCollection: true,
       );
-      print('NostrService: Embedded relay initialized');
+      Log.info('Embedded relay initialized', name: 'NostrService', category: LogCategory.relay);
       
       // Add external relays (embedded relay will manage connections)
       final defaultRelay = 'wss://relay3.openvine.co';
@@ -58,13 +59,13 @@ class NostrService implements INostrService {
         try {
           await _embeddedRelay!.addExternalRelay(relayUrl);
           _configuredRelays.add(relayUrl);
-          print('NostrService: Added external relay: $relayUrl');
+          Log.info('Added external relay: $relayUrl', name: 'NostrService', category: LogCategory.relay);
           
           // Check if the relay is actually connected
           final connectedRelays = _embeddedRelay!.connectedRelays;
-          print('NostrService: Connected relays after adding: $connectedRelays');
+          Log.debug('Connected relays after adding: $connectedRelays', name: 'NostrService', category: LogCategory.relay);
         } catch (e) {
-          print('NostrService: Failed to add relay $relayUrl: $e');
+          Log.error('Failed to add relay $relayUrl: $e', name: 'NostrService', category: LogCategory.relay);
         }
       }
       
@@ -75,10 +76,10 @@ class NostrService implements INostrService {
       }
       
       _isInitialized = true;
-      print('NostrService: Initialization complete with ${_configuredRelays.length} external relays');
+      Log.info('Initialization complete with ${_configuredRelays.length} external relays', name: 'NostrService', category: LogCategory.relay);
       
     } catch (e) {
-      print('NostrService: Failed to initialize: $e');
+      Log.error('Failed to initialize: $e', name: 'NostrService', category: LogCategory.relay);
       throw StateError('Failed to initialize embedded relay: $e');
     }
   }
@@ -165,38 +166,57 @@ class NostrService implements INostrService {
     if (!_isInitialized) throw StateError('NostrService not initialized');
     if (_embeddedRelay == null) throw StateError('Embedded relay not initialized');
     
-    final controller = StreamController<Event>();
-    final id = 'sub_${DateTime.now().millisecondsSinceEpoch}';
+    // Generate deterministic subscription ID based on filter content
+    // This prevents duplicate subscriptions with identical filters
+    final filterHash = _generateFilterHash(filters);
+    final id = 'sub_$filterHash';
+    
+    // Check if we already have this exact subscription
+    if (_subscriptions.containsKey(id) && !_subscriptions[id]!.isClosed) {
+      Log.info('🔄 Reusing existing subscription $id with identical filters', name: 'NostrService', category: LogCategory.relay);
+      return _subscriptions[id]!.stream;
+    }
+    
+    // Check for too many concurrent subscriptions
+    if (_subscriptions.length >= 10 && !bypassLimits) {
+      Log.warning('Too many concurrent subscriptions (${_subscriptions.length}). Consider cancelling old ones.', name: 'NostrService', category: LogCategory.relay);
+      // Clean up any closed controllers
+      _subscriptions.removeWhere((key, controller) => controller.isClosed);
+      Log.debug('After cleanup, active subscriptions: ${_subscriptions.length}', name: 'NostrService', category: LogCategory.relay);
+    }
+    
+    final controller = StreamController<Event>.broadcast();
     _subscriptions[id] = controller;
+    Log.debug('Total active subscriptions: ${_subscriptions.length}', name: 'NostrService', category: LogCategory.relay);
     
     // Convert nostr_sdk filters to embedded relay filters
     final embeddedFilters = filters.map(_convertToEmbeddedFilter).toList();
     
     // Debug logging for filters
-    print('NostrService: Creating subscription $id with ${embeddedFilters.length} filters');
+    Log.debug('Creating subscription $id with ${embeddedFilters.length} filters', name: 'NostrService', category: LogCategory.relay);
     for (var i = 0; i < embeddedFilters.length; i++) {
       final filter = embeddedFilters[i];
-      print('  Filter $i: kinds=${filter.kinds}, authors=${filter.authors?.length ?? 0} authors, tags=${filter.tags}');
+      Log.debug('  Filter $i: kinds=${filter.kinds}, authors=${filter.authors?.length ?? 0} authors, tags=${filter.tags}', name: 'NostrService', category: LogCategory.relay);
       // Log first few authors for debugging
       if (filter.authors != null && filter.authors!.isNotEmpty) {
         final authorsPreview = filter.authors!.take(3).join(', ');
-        print('    First authors: $authorsPreview');
+        Log.debug('    First authors: $authorsPreview', name: 'NostrService', category: LogCategory.relay);
       }
     }
     
     // Use embedded relay directly - it handles external relay subscriptions automatically
-    print('NostrService: Calling embedded relay subscribe with $id');
+    Log.debug('Calling embedded relay subscribe with $id', name: 'NostrService', category: LogCategory.relay);
     final subscription = _embeddedRelay!.subscribe(
       subscriptionId: id,
       filters: embeddedFilters,
       onEvent: (embeddedEvent) {
-        print('NostrService: Embedded relay returned event for $id');
+        Log.debug('Embedded relay returned event for $id', name: 'NostrService', category: LogCategory.relay);
         // Convert embedded relay event to nostr_sdk event
         final event = _convertFromEmbeddedEvent(embeddedEvent);
         if (!controller.isClosed) {
           // Debug log for home feed events
           if (id.contains('homeFeed')) {
-            print('NostrService: Received home feed event - kind: ${event.kind}, author: ${event.pubkey.substring(0, 8)}...');
+            Log.debug('Received home feed event - kind: ${event.kind}, author: ${event.pubkey.substring(0, 8)}...', name: 'NostrService', category: LogCategory.relay);
           }
           controller.add(event);
         }
@@ -210,8 +230,15 @@ class NostrService implements INostrService {
     
     // Handle controller disposal
     controller.onCancel = () {
-      subscription.close();
+      Log.debug('Stream cancelled for subscription $id - closing embedded relay subscription', name: 'NostrService', category: LogCategory.relay);
+      try {
+        subscription.close();
+        print('NostrService: Successfully closed embedded relay subscription $id');
+      } catch (e) {
+        print('NostrService: Error closing embedded relay subscription $id: $e');
+      }
       _subscriptions.remove(id);
+      print('NostrService: Active subscriptions after removal: ${_subscriptions.length}');
     };
     
     return controller.stream;
@@ -619,6 +646,81 @@ class NostrService implements INostrService {
   // Private helper methods
   
   /// Convert nostr_sdk Filter to embedded relay Filter
+  /// Generate a deterministic hash for a set of filters to prevent duplicate subscriptions
+  String _generateFilterHash(List<nostr.Filter> filters) {
+    // Create a deterministic string representation of the filters
+    final parts = <String>[];
+    
+    for (final filter in filters) {
+      final filterParts = <String>[];
+      
+      // Add kinds
+      if (filter.kinds != null && filter.kinds!.isNotEmpty) {
+        final sortedKinds = List<int>.from(filter.kinds!)..sort();
+        filterParts.add('k:${sortedKinds.join(",")}');
+      }
+      
+      // Add authors
+      if (filter.authors != null && filter.authors!.isNotEmpty) {
+        final sortedAuthors = List<String>.from(filter.authors!)..sort();
+        filterParts.add('a:${sortedAuthors.join(",")}');
+      }
+
+      // Add ids
+      if (filter.ids != null && filter.ids!.isNotEmpty) {
+        final sortedIds = List<String>.from(filter.ids!)..sort();
+        filterParts.add('i:${sortedIds.join(",")}');
+      }
+      
+      // Add since/until
+      if (filter.since != null) filterParts.add('s:${filter.since}');
+      if (filter.until != null) filterParts.add('u:${filter.until}');
+      
+      // Add limit
+      if (filter.limit != null) filterParts.add('l:${filter.limit}');
+      
+      // Add tags
+      if (filter.t != null && filter.t!.isNotEmpty) {
+        final sortedTags = List<String>.from(filter.t!)..sort();
+        filterParts.add('t:${sortedTags.join(",")}');
+      }
+      
+      // Add d tags
+      if (filter.d != null && filter.d!.isNotEmpty) {
+        final sortedD = List<String>.from(filter.d!)..sort();
+        filterParts.add('d:${sortedD.join(",")}');
+      }
+
+      // Add p and e tags if present
+      if (filter.p != null && filter.p!.isNotEmpty) {
+        final sortedP = List<String>.from(filter.p!)..sort();
+        filterParts.add('p:${sortedP.join(",")}');
+      }
+      if (filter.e != null && filter.e!.isNotEmpty) {
+        final sortedE = List<String>.from(filter.e!)..sort();
+        filterParts.add('e:${sortedE.join(",")}');
+      }
+
+      // Add group/h tag if used by client
+      if (filter.h != null && filter.h!.isNotEmpty) {
+        final sortedH = List<String>.from(filter.h!)..sort();
+        filterParts.add('h:${sortedH.join(",")}');
+      }
+      
+      parts.add(filterParts.join('|'));
+    }
+    
+    // Create a hash from the filter string
+    final filterString = parts.join('||');
+    // Use a simple hash function for the subscription ID
+    var hash = 0;
+    for (var i = 0; i < filterString.length; i++) {
+      hash = ((hash << 5) - hash) + filterString.codeUnitAt(i);
+      hash = hash & 0xFFFFFFFF; // Convert to 32-bit integer
+    }
+    return hash.abs().toString();
+  }
+
   embedded.Filter _convertToEmbeddedFilter(nostr.Filter filter) {
     // Build tags map for embedded relay - note the # prefix for tag filters
     final Map<String, List<String>> tags = {};
@@ -637,10 +739,15 @@ class NostrService implements INostrService {
     if (filter.t != null && filter.t!.isNotEmpty) {
       tags['#t'] = filter.t!;
     }
-    
+
     // Add d tags (NIP-33 parameterized replaceable events) if present
     if (filter.d != null && filter.d!.isNotEmpty) {
       tags['#d'] = filter.d!;
+    }
+
+    // Add custom group tag if present (client uses 'h')
+    if (filter.h != null && filter.h!.isNotEmpty) {
+      tags['#h'] = filter.h!;
     }
     
     return embedded.Filter(

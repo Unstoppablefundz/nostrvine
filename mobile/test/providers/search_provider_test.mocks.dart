@@ -342,6 +342,16 @@ class MockVideoEventService extends _i1.Mock implements _i2.VideoEventService {
       ) as _i6.Future<void>);
 
   @override
+  void resetPaginationState(_i2.SubscriptionType? subscriptionType) =>
+      super.noSuchMethod(
+        Invocation.method(
+          #resetPaginationState,
+          [subscriptionType],
+        ),
+        returnValueForMissingStub: null,
+      );
+
+  @override
   _i6.Future<void> loadMoreContentUnlimited({
     _i2.SubscriptionType? subscriptionType = _i2.SubscriptionType.discovery,
     int? limit = 300,

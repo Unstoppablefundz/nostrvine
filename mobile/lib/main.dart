@@ -436,6 +436,7 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
     // Create screens once - IndexedStack will preserve their state
     // ProfileScreen is created lazily to avoid unnecessary profile stats loading during startup
+    // UNLESS we're starting on the profile tab
     _screens = [
       VideoFeedScreen(
         key: _feedScreenKey,
@@ -443,7 +444,10 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       ),
       const ActivityScreen(),
       ExploreScreen(key: _exploreScreenKey),
-      Container(), // Placeholder for ProfileScreen - will be replaced when needed
+      // If starting on profile tab, create it immediately; otherwise use placeholder
+      widget.initialTabIndex == 3 
+          ? const ProfileScreen(profilePubkey: null) // null means current user
+          : Container(), // Placeholder for ProfileScreen - will be replaced when needed
     ];
     
     Log.info('📱 MainNavigation: Created screens array with ${_screens.length} screens',
@@ -625,33 +629,33 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         children: _screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: _onTabTapped,
-          backgroundColor: VineTheme.vineGreen,
-          selectedItemColor: VineTheme.whiteText,
-          unselectedItemColor: VineTheme.whiteText.withValues(alpha: 0.7),
-          type: BottomNavigationBarType.fixed,
-          elevation: 8,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home),
-              label: 'FEED',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.notifications),
-              label: 'ACTIVITY',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.explore),
-              label: 'EXPLORE',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'PROFILE',
-            ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton(
+        currentIndex: _currentIndex,
+        onTap: _onTabTapped,
+        backgroundColor: VineTheme.vineGreen,
+        selectedItemColor: VineTheme.whiteText,
+        unselectedItemColor: VineTheme.whiteText.withOpacity(0.7),
+        type: BottomNavigationBarType.fixed,
+        elevation: 8,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'FEED',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.notifications),
+            label: 'ACTIVITY',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.explore),
+            label: 'EXPLORE',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'PROFILE',
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
           onPressed: () async {
             // Capture context before async operations
             final scaffoldContext = context;

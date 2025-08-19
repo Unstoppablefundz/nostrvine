@@ -7,6 +7,7 @@ import 'package:openvine/models/curation_set.dart';
 import 'package:openvine/models/video_event.dart';
 import 'package:openvine/screens/hashtag_feed_screen.dart';
 import 'package:openvine/screens/search_screen.dart';
+import 'package:openvine/services/top_hashtags_service.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/video_explore_tile.dart';
@@ -50,7 +51,7 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
   int _editorsHashtagLimit = 25;
   int _trendingHashtagLimit = 25;
   bool _isLoadingMoreEditorsHashtags = false;
-  bool _isLoadingMoreTrendingHashtags = false;
+  // Removed _isLoadingMoreTrendingHashtags - now using infinite scrolling
   
   // Track if the explore screen is actually visible
   bool _isScreenVisible = false;
@@ -73,6 +74,13 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
 
     // Add lifecycle observer
     WidgetsBinding.instance.addObserver(this);
+    
+    // Load top hashtags from JSON file
+    TopHashtagsService.instance.loadTopHashtags().then((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
 
     // Only start discovery if ExploreScreen is visible AND on Popular Now tab
     // This prevents loading videos when user is on Home feed
@@ -385,19 +393,32 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
     }
     
     // We've shown all local videos, fetch more from server with pagination
-    final videoEventService = ref.read(videoEventServiceProvider);
+    // Use the provider's loadMoreEvents method which properly calls the service
+    final videoEventsNotifier = ref.read(videoEventsProvider.notifier);
     
-    Log.info('ExploreScreen: Fetching historical Popular Now videos via loadMoreEvents',
+    Log.info('ExploreScreen: Fetching historical Popular Now videos via provider loadMoreEvents',
         name: 'ExploreScreen', category: LogCategory.video);
     
-    videoEventService.loadMoreEvents(SubscriptionType.discovery, limit: 25).then((_) {
+    videoEventsNotifier.loadMoreEvents().then((_) {
       // After loading, increase display limit to show the new videos
       // The reactive VideoEventsProvider will automatically update the UI
       if (mounted) {
-        setState(() {
-          _popularNowLimit += 25;
-          _isLoadingMorePopular = false;
-        });
+        // Check if we actually got new videos
+        final newTotalAvailable = ref.read(videoEventsProvider).valueOrNull?.length ?? 0;
+        if (newTotalAvailable > totalAvailable) {
+          Log.info('ExploreScreen: Received ${newTotalAvailable - totalAvailable} new videos from relay',
+              name: 'ExploreScreen', category: LogCategory.video);
+          setState(() {
+            _popularNowLimit += 25;
+            _isLoadingMorePopular = false;
+          });
+        } else {
+          Log.warning('ExploreScreen: No new videos received from relay - may have reached end of content',
+              name: 'ExploreScreen', category: LogCategory.video);
+          setState(() {
+            _isLoadingMorePopular = false;
+          });
+        }
       }
     }).catchError((error) {
       Log.error('ExploreScreen: Error loading more Popular Now videos: $error',
@@ -421,15 +442,29 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
     Log.info('ExploreScreen: Loading more Trending videos from Analytics API',
         name: 'ExploreScreen', category: LogCategory.video);
     
+    // Get current count before loading
+    final currentCount = ref.read(curation_providers.analyticsTrendingProvider).length;
+    
     // Load more trending videos from analytics API
     final trendingProvider = ref.read(curation_providers.analyticsTrendingProvider.notifier);
     trendingProvider.loadMore().then((_) {
-      // Increase limit to show newly loaded videos
       if (mounted) {
+        // Check if we actually got new videos
+        final newCount = ref.read(curation_providers.analyticsTrendingProvider).length;
+        final hasNewVideos = newCount > currentCount;
+        
         setState(() {
-          _trendingLimit += 25;
+          // Only increase limit if we got new videos
+          if (hasNewVideos) {
+            _trendingLimit += 25;
+          }
           _isLoadingMoreTrending = false;
         });
+        
+        if (!hasNewVideos) {
+          Log.warning('ExploreScreen: No new trending videos loaded - reached end of available content',
+              name: 'ExploreScreen', category: LogCategory.video);
+        }
       }
     }).catchError((error) {
       Log.error('ExploreScreen: Error loading more Trending videos: $error',
@@ -461,24 +496,7 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
     });
   }
 
-  /// Load more trending hashtags
-  void _loadMoreTrendingHashtags() {
-    if (_isLoadingMoreTrendingHashtags) return;
-    
-    setState(() {
-      _isLoadingMoreTrendingHashtags = true;
-      _trendingHashtagLimit += 10; // Load 10 more hashtags
-    });
-    
-    // Brief delay to show loading state, then hide it
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        setState(() {
-          _isLoadingMoreTrendingHashtags = false;
-        });
-      }
-    });
-  }
+  // Removed _loadMoreTrendingHashtags - now using infinite scrolling
 
   /// Play a specific video in feed mode with context videos
   void playSpecificVideo(List<VideoEvent> videos, int startIndex) {
@@ -509,15 +527,62 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
 
     // Subscribe to hashtag videos and wait for them to load
     final hashtagService = ref.read(hashtagServiceProvider);
+    final videoService = ref.read(videoEventServiceProvider);
+    final nostrService = ref.read(nostrServiceProvider);
+    
     Log.info('📍 Subscribing to hashtag videos for #$hashtag',
         name: 'ExploreScreen', category: LogCategory.ui);
-    
-    await hashtagService.subscribeToHashtagVideos([hashtag], limit: 100);
-    
-    // Check if we have videos immediately after subscription
-    var videos = hashtagService.getVideosByHashtags([hashtag]);
-    Log.info('📍 After subscription, found ${videos.length} videos for #$hashtag',
+    Log.info('📍 Connected relays: ${nostrService.connectedRelayCount}',
         name: 'ExploreScreen', category: LogCategory.ui);
+    
+    // First check if we have cached videos for this hashtag
+    var cachedVideos = hashtagService.getVideosByHashtags([hashtag]);
+    Log.info('📍 Found ${cachedVideos.length} cached videos for #$hashtag',
+        name: 'ExploreScreen', category: LogCategory.ui);
+    
+    // Force a new subscription with replace=true to ensure we fetch from relays
+    try {
+      // Clear any existing hashtag videos first
+      Log.info('📍 Creating new subscription for #$hashtag with replace=true',
+          name: 'ExploreScreen', category: LogCategory.ui);
+      
+      await videoService.subscribeToVideoFeed(
+        subscriptionType: SubscriptionType.hashtag,
+        hashtags: [hashtag],
+        limit: 100,
+        replace: true, // Force replace existing subscription
+      );
+      
+      Log.info('📍 Subscription created, waiting for relay responses...',
+          name: 'ExploreScreen', category: LogCategory.ui);
+      
+      // Give relays a moment to respond
+      await Future.delayed(const Duration(milliseconds: 1500));
+      
+      // Check if we have videos after subscription
+      final hashtagVideos = videoService.getVideos(SubscriptionType.hashtag);
+      Log.info('📍 After delay, VideoService has ${hashtagVideos.length} hashtag videos',
+          name: 'ExploreScreen', category: LogCategory.ui);
+      
+      // Also check what the hashtag service sees
+      final fetchedVideos = hashtagService.getVideosByHashtags([hashtag]);
+      Log.info('📍 HashtagService found ${fetchedVideos.length} videos for #$hashtag',
+          name: 'ExploreScreen', category: LogCategory.ui);
+      
+      // Log some video IDs for debugging
+      if (hashtagVideos.isNotEmpty) {
+        final sampleIds = hashtagVideos.take(3).map((v) => v.id.substring(0, 8)).join(', ');
+        Log.info('📍 Sample video IDs: $sampleIds',
+            name: 'ExploreScreen', category: LogCategory.ui);
+      }
+    } catch (e) {
+      Log.error('📍 Failed to subscribe to hashtag videos: $e',
+          name: 'ExploreScreen', category: LogCategory.ui);
+      // Fall back to cached videos if subscription fails
+    }
+    
+    // Get videos one more time to check current state
+    final videos = hashtagService.getVideosByHashtags([hashtag]);
     
     // Track the oldest video timestamp for pagination
     if (videos.isNotEmpty) {
@@ -531,13 +596,13 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
       // Also trigger a delayed rebuild to catch videos that arrive shortly after
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted && _selectedHashtag == hashtag) {
-          videos = hashtagService.getVideosByHashtags([hashtag]);
-          Log.info('📍 Delayed check: found ${videos.length} videos for #$hashtag',
+          final delayedVideos = hashtagService.getVideosByHashtags([hashtag]);
+          Log.info('📍 Delayed check: found ${delayedVideos.length} videos for #$hashtag',
               name: 'ExploreScreen', category: LogCategory.ui);
           
           // Update oldest timestamp if we got new videos
-          if (videos.isNotEmpty) {
-            _updateOldestHashtagTimestamp(videos);
+          if (delayedVideos.isNotEmpty) {
+            _updateOldestHashtagTimestamp(delayedVideos);
           }
           
           setState(() {});
@@ -1153,21 +1218,31 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
           setState(() {
             _popularNowLimit = 50;
           });
+          
+          // Reset pagination state in the service to allow fresh loading
+          final videoEventService = ref.read(videoEventServiceProvider);
+          videoEventService.resetPaginationState(SubscriptionType.discovery);
+          
+          // Invalidate and refresh the provider
           ref.invalidate(videoEventsProvider);
+          
+          // Force a fresh discovery subscription
+          ref.read(videoEventsProvider.notifier).startDiscoverySubscription();
         },
         child: NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             // Check for automatic pagination when near end of grid scroll
             if (notification is ScrollUpdateNotification && 
-                !_isLoadingMorePopular && 
-                videos.length >= _popularNowLimit && 
-                _popularNowLimit < allVideos.length) {
+                !_isLoadingMorePopular) {
               final scrollExtent = notification.metrics.maxScrollExtent;
               final currentScroll = notification.metrics.pixels;
               final threshold = scrollExtent * 0.8; // Load more when 80% scrolled
               
               if (currentScroll >= threshold) {
-                // Auto-load more Popular Now videos
+                // Always try to load more when scrolling near bottom
+                // The method will handle checking if there are local videos or need to fetch from relay
+                Log.debug('📜 Auto-triggering load more at 80% scroll position',
+                    name: 'ExploreScreen', category: LogCategory.ui);
                 _loadMorePopularNow();
               }
             }
@@ -1224,8 +1299,37 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
     ref.watch(videoEventsProvider);
     
     final hashtagService = ref.watch(hashtagServiceProvider);
-    // Use getPopularHashtags to sort by video count (most vines first)
-    final allTrendingHashtags = hashtagService.getPopularHashtags(limit: 100); // Get more from service
+    final topHashtagsService = TopHashtagsService.instance;
+    
+    // Create a map to store hashtags with their counts
+    final hashtagCounts = <String, int>{};
+    
+    // Get ALL hashtags from JSON (no limit)
+    final topHashtagsFromJson = topHashtagsService.getTopHashtags(limit: 1000);
+    
+    // Add JSON hashtags with their counts
+    for (final hashtag in topHashtagsFromJson) {
+      final jsonStats = topHashtagsService.getHashtagStats(hashtag);
+      hashtagCounts[hashtag] = jsonStats?.count ?? 0;
+    }
+    
+    // Add or update with local hashtag counts
+    final localHashtags = hashtagService.allHashtags;
+    for (final hashtag in localHashtags) {
+      final localStats = hashtagService.getHashtagStats(hashtag);
+      if (localStats != null) {
+        // Add local count to existing count (combine JSON + local)
+        final currentCount = hashtagCounts[hashtag] ?? 0;
+        hashtagCounts[hashtag] = currentCount + localStats.videoCount;
+      }
+    }
+    
+    // Sort hashtags by count (descending) - PROPER SORTING
+    final sortedHashtagEntries = hashtagCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    // Get all hashtags sorted properly
+    final allTrendingHashtags = sortedHashtagEntries.map((e) => e.key).toList();
     var trendingHashtags = allTrendingHashtags.take(_trendingHashtagLimit).toList();
     
     // If a hashtag is selected but not in the trending list, add it to ensure it's visible
@@ -1249,7 +1353,8 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: trendingHashtags.length + 1 + (trendingHashtags.length < allTrendingHashtags.length ? 1 : 0),
+                // Show ALL hashtags, no limit - user can scroll infinitely
+                itemCount: allTrendingHashtags.length + 1,
                 itemBuilder: (context, index) {
                   if (index == 0) {
                     // "All" chip
@@ -1282,33 +1387,8 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
                     );
                   }
 
-                  // Show load more button at the end
-                  if (index > trendingHashtags.length) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _isLoadingMoreTrendingHashtags
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                color: VineTheme.vineGreen,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : ActionChip(
-                              label: const Text('+ More'),
-                              onPressed: _loadMoreTrendingHashtags,
-                              backgroundColor: VineTheme.vineGreen,
-                              labelStyle: const TextStyle(
-                                color: VineTheme.whiteText,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                    );
-                  }
-
-                  final hashtag = trendingHashtags[index - 1];
+                  // Get the hashtag for this index (remember index 0 is "All")
+                  final hashtag = allTrendingHashtags[index - 1];
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -1468,7 +1548,8 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: trendingHashtags.length + 1 + (trendingHashtags.length < allTrendingHashtags.length ? 1 : 0),
+              // Show ALL hashtags, no limit - user can scroll infinitely
+              itemCount: allTrendingHashtags.length + 1,
               itemBuilder: (context, index) {
                 if (index == 0) {
                   // "All" chip
@@ -1496,33 +1577,8 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
                   );
                 }
 
-                // Show load more button at the end
-                if (index > trendingHashtags.length) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _isLoadingMoreTrendingHashtags
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: VineTheme.vineGreen,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : ActionChip(
-                            label: const Text('+ More'),
-                            onPressed: _loadMoreTrendingHashtags,
-                            backgroundColor: VineTheme.vineGreen,
-                            labelStyle: const TextStyle(
-                              color: VineTheme.whiteText,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  );
-                }
-
-                final hashtag = trendingHashtags[index - 1];
+                // Get the hashtag for this index (remember index 0 is "All")
+                final hashtag = allTrendingHashtags[index - 1];
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: GestureDetector(
@@ -1591,8 +1647,9 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
     // Use analytics trending provider for data sorted by actual popularity
     final analyticsTrendingVideos = ref.watch(curation_providers.analyticsTrendingProvider);
     
-    // If we have very few videos, trigger a refresh
-    if (analyticsTrendingVideos.length < 10) {
+    // Only trigger refresh once on initial load, not on every rebuild
+    if (analyticsTrendingVideos.isEmpty && !_hasFetchedTrending) {
+      _hasFetchedTrending = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final trendingProvider = ref.read(curation_providers.analyticsTrendingProvider.notifier);
         trendingProvider.refresh();
@@ -1614,6 +1671,104 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
         name: 'ExploreScreen', category: LogCategory.ui);
     
     if (videos.isEmpty) {
+      // When no trending videos from server, show popular hashtags sorted by video count
+      final hashtagService = ref.watch(hashtagServiceProvider);
+      
+      // Watch video events to trigger rebuilds when new videos arrive
+      final videoEventsAsync = ref.watch(videoEventsProvider);
+      
+      // Also trigger discovery subscription to get more videos from relays
+      // This will populate hashtag statistics with fresh data
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Check relay connectivity status first
+        final nostrService = ref.read(nostrServiceProvider);
+        final connectedRelays = nostrService.connectedRelayCount;
+        
+        Log.info('📡 Relay Status: $connectedRelays relays connected',
+            name: 'ExploreScreen', category: LogCategory.ui);
+        
+        if (connectedRelays == 0) {
+          Log.warning('⚠️ No relays connected! Cannot fetch remote videos',
+              name: 'ExploreScreen', category: LogCategory.ui);
+        }
+        
+        // Start discovery subscription to get videos from relays
+        Log.info('📡 Starting discovery subscription to fetch hashtags from relays',
+            name: 'ExploreScreen', category: LogCategory.ui);
+        ref.read(videoEventsProvider.notifier).startDiscoverySubscription();
+        
+        // Also trigger a force refresh to ensure we're fetching fresh data
+        final videoEventService = ref.read(videoEventServiceProvider);
+        videoEventService.loadMoreContentUnlimited(
+          subscriptionType: SubscriptionType.discovery,
+          limit: 300
+        ).then((_) {
+          Log.info('📡 Unlimited content query started for hashtag discovery',
+              name: 'ExploreScreen', category: LogCategory.ui);
+          // Refresh hashtag statistics after fetching
+          Future.delayed(const Duration(seconds: 3), () {
+            hashtagService.refreshHashtagStats();
+          });
+        });
+      });
+      
+      // Show loading state while fetching initial videos
+      final isLoading = videoEventsAsync.when(
+        data: (videos) => videos.isEmpty,
+        loading: () => true,
+        error: (_, __) => false,
+      );
+      
+      // Get current video count for display
+      final videoEventService = ref.read(videoEventServiceProvider);
+      final totalVideos = videoEventService.discoveryVideos.length + 
+                         videoEventService.homeFeedVideos.length;
+      
+      // Combine top hashtags from JSON with local cache
+      final topHashtagsService = TopHashtagsService.instance;
+      // Get ALL hashtags from JSON (no limit)
+      final topHashtagsFromJson = topHashtagsService.getTopHashtags(limit: 1000);
+      // Get ALL local hashtags
+      final localHashtags = hashtagService.allHashtags;
+      
+      // Create a map to store hashtags with their counts
+      final hashtagCounts = <String, int>{};
+      
+      // Add JSON hashtags with their counts
+      for (final hashtag in topHashtagsFromJson) {
+        final jsonStats = topHashtagsService.getHashtagStats(hashtag);
+        hashtagCounts[hashtag] = jsonStats?.count ?? 0;
+      }
+      
+      // Add or update with local hashtag counts (which are more current)
+      for (final hashtag in localHashtags) {
+        final localStats = hashtagService.getHashtagStats(hashtag);
+        if (localStats != null) {
+          // Add local count to existing count (combine JSON + local)
+          final currentCount = hashtagCounts[hashtag] ?? 0;
+          hashtagCounts[hashtag] = currentCount + localStats.videoCount;
+        } else if (!hashtagCounts.containsKey(hashtag)) {
+          // Add hashtags that only exist locally with count of 1 (since it exists)
+          hashtagCounts[hashtag] = 1;
+        }
+      }
+      
+      // Sort hashtags by count (descending)
+      final sortedHashtags = hashtagCounts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      
+      // Debug: Log top hashtags to verify sorting
+      if (sortedHashtags.isNotEmpty) {
+        final top5 = sortedHashtags.take(5).map((e) => '${e.key}:${e.value}').join(', ');
+        Log.debug('📊 Top 5 hashtags by count: $top5',
+            name: 'ExploreScreen', category: LogCategory.ui);
+      }
+      
+      // Get ALL hashtags - no limit
+      final popularHashtags = sortedHashtags
+          .map((entry) => entry.key)
+          .toList();
+      
       return RefreshIndicator(
             color: VineTheme.vineGreen,
             onRefresh: () async {
@@ -1624,34 +1779,144 @@ class ExploreScreenState extends ConsumerState<ExploreScreen>
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: SizedBox(
-                height: MediaQuery.of(context).size.height * 0.6,
-                child: const Center(
+                height: MediaQuery.of(context).size.height * 0.8,
+                child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        Icons.trending_up,
+                      const Icon(
+                        Icons.tag,
                         size: 64,
                         color: VineTheme.secondaryText,
                       ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Looking for Trending Videos...',
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Explore Hashtags',
                         style: TextStyle(
                           color: VineTheme.primaryText,
-                          fontSize: 18,
+                          fontSize: 20,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text(
-                        'Fetching the latest trending content\nfrom the network.\n\nPull down to refresh.',
-                        style: TextStyle(
+                        isLoading 
+                          ? 'Fetching videos from relays...'
+                          : 'Browse popular hashtags to discover content',
+                        style: const TextStyle(
                           color: VineTheme.secondaryText,
                           fontSize: 14,
                         ),
                         textAlign: TextAlign.center,
                       ),
+                      if (topHashtagsService.isLoaded || totalVideos > 0)
+                        Text(
+                          topHashtagsService.isLoaded 
+                            ? 'Showing ${popularHashtags.length} hashtags (${topHashtagsFromJson.length} global + ${localHashtags.length} local)'
+                            : 'Showing ${popularHashtags.length} hashtags from $totalVideos cached videos',
+                          style: const TextStyle(
+                            color: VineTheme.secondaryText,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      const SizedBox(height: 16),
+                      
+                      // Add manual refresh button
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          // Force refresh from relays
+                          final nostrService = ref.read(nostrServiceProvider);
+                          final connectedRelays = nostrService.connectedRelayCount;
+                          
+                          if (connectedRelays == 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('No relays connected. Check your network connection.'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                            return;
+                          }
+                          
+                          // Force fetch new videos
+                          ref.read(videoEventServiceProvider).loadMoreContentUnlimited(
+                            subscriptionType: SubscriptionType.discovery,
+                            limit: 500,
+                          ).then((_) {
+                            // Refresh stats after a delay
+                            Future.delayed(const Duration(seconds: 5), () {
+                              hashtagService.refreshHashtagStats();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Hashtag data refreshed'),
+                                  backgroundColor: VineTheme.vineGreen,
+                                ),
+                              );
+                            });
+                          });
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Fetch from Relays'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: VineTheme.vineGreen,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Display popular hashtags in a wrap widget
+                      if (popularHashtags.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: popularHashtags.map((hashtag) {
+                              // Get video count - check both JSON stats and local cache
+                              final jsonStats = topHashtagsService.getHashtagStats(hashtag);
+                              final localStats = hashtagService.getHashtagStats(hashtag);
+                              
+                              // Use local count if available (more current), otherwise use JSON count
+                              final videoCount = localStats?.videoCount ?? jsonStats?.count ?? 0;
+                              
+                              return ActionChip(
+                                label: Text(
+                                  videoCount > 0 
+                                    ? '#$hashtag ($videoCount)' 
+                                    : '#$hashtag',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: () async {
+                                  // Navigate to hashtag feed
+                                  debugPrint('🔗 Navigating to hashtag feed: #$hashtag');
+                                  await showHashtagVideos(hashtag);
+                                },
+                                backgroundColor: VineTheme.vineGreen.withValues(alpha: 0.9),
+                                labelStyle: const TextStyle(
+                                  color: VineTheme.whiteText,
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ] else ...[
+                        const Text(
+                          'No hashtags available yet.\nPull down to refresh.',
+                          style: TextStyle(
+                            color: VineTheme.secondaryText,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ],
                   ),
                 ),

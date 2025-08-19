@@ -47,6 +47,7 @@ class VideoEvents extends _$VideoEvents {
 
     // Subscribe to discovery videos for Explore screen
     // This loads latest videos from relay3.openvine.co
+    // NostrService now handles deduplication automatically
     videoEventService.subscribeToDiscovery(limit: 100);
 
     // Create a new stream controller
@@ -91,6 +92,7 @@ class VideoEvents extends _$VideoEvents {
     );
     
     // Subscribe to discovery videos using dedicated subscription type
+    // NostrService now handles deduplication automatically
     videoEventService.subscribeToDiscovery(limit: 100);
   }
 

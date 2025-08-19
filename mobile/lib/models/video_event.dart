@@ -97,10 +97,12 @@ class VideoEvent {
           // Check if this is a valid video URL
           if (tagValue.isNotEmpty && _isValidVideoUrl(tagValue)) {
             if (tagValue.contains('apt.openvine.co')) {
+              // Fix typo: apt.openvine.co -> api.openvine.co
+              final fixedUrl = tagValue.replaceAll('apt.openvine.co', 'api.openvine.co');
               developer.log(
-                  '⚠️ WARNING: Found broken apt.openvine.co URL, will use fallback if no other URL found: $tagValue',
+                  '🔧 FIXED: Corrected apt.openvine.co to api.openvine.co: $fixedUrl',
                   name: 'VideoEvent');
-              // Don't set videoUrl yet, try to find a better one first
+              videoUrl = fixedUrl;
             } else {
               videoUrl = tagValue;
               developer.log('✅ Set videoUrl from url tag: $videoUrl',
@@ -126,10 +128,12 @@ class VideoEvent {
                 // Check if this is a valid video URL and prefer it over existing URL if better
                 if (value.isNotEmpty && _isValidVideoUrl(value)) {
                   if (value.contains('apt.openvine.co')) {
+                    // Fix typo: apt.openvine.co -> api.openvine.co
+                    final fixedUrl = value.replaceAll('apt.openvine.co', 'api.openvine.co');
                     developer.log(
-                        '⚠️ WARNING: Found broken apt.openvine.co URL in imeta: $value',
+                        '🔧 FIXED: Corrected apt.openvine.co to api.openvine.co in imeta: $fixedUrl',
                         name: 'VideoEvent');
-                    // Don't override good URL with bad one
+                    videoUrl ??= fixedUrl; // Only set if not already set
                   } else {
                     videoUrl ??= value; // Only set if not already set
                     developer.log('✅ Set videoUrl from imeta: $value',
@@ -294,22 +298,26 @@ class VideoEvent {
       }
     }
 
-    // If we have a broken apt.openvine.co URL but no alternative, use fallback
+    // If we still have a broken apt.openvine.co URL (shouldn't happen now), fix it
     if (videoUrl != null && videoUrl!.contains('apt.openvine.co')) {
+      final fixedUrl = videoUrl!.replaceAll('apt.openvine.co', 'api.openvine.co');
       developer.log(
-          '🔧 FALLBACK: Replacing broken apt.openvine.co URL with working fallback',
+          '🔧 FINAL FIX: Corrected remaining apt.openvine.co to api.openvine.co: $fixedUrl',
           name: 'VideoEvent');
-      videoUrl =
-          'https://blossom.primal.net/87444ba2b07f28f29a8df3e9b358712e434a9d94bc67b08db5d4de61e6205344.mp4';
+      videoUrl = fixedUrl;
     }
 
     developer.log(
         '🔍 DEBUG: hasVideo = ${videoUrl != null && videoUrl!.isNotEmpty}',
         name: 'VideoEvent');
 
-    // Validate that events must have a 'd' tag
+    // Use 'd' tag if available, otherwise fallback to event ID
+    // Many relays don't include 'd' tags on Kind 32222 events
     if (vineId == null || vineId.isEmpty) {
-      throw ArgumentError('Kind 32222 events must have a "d" tag identifier');
+      developer.log(
+          '⚠️ WARNING: Kind 32222 event missing "d" tag, using event ID as fallback',
+          name: 'VideoEvent');
+      vineId = event.id; // Use event ID as unique identifier
     }
 
     // Generate fallback thumbnail URL if none provided
@@ -389,15 +397,18 @@ class VideoEvent {
   final int? originalLoops; // Original loop count from classic Vine
   final int? originalLikes; // Original like count from classic Vine
 
-  /// Parse imeta tag which contains alternating key-value elements
+  /// Parse imeta tag which contains space-separated key-value pairs
+  /// NIP-32222 format: ["imeta", "key1 value1", "key2 value2", ...]
   static void _parseImetaTag(
       List<String> tag, void Function(String key, String value) onKeyValue) {
     // Skip the first element which is "imeta"
-    // Elements alternate: key, value, key, value, ...
-    for (var i = 1; i < tag.length - 1; i += 2) {
-      if (i + 1 < tag.length) {
-        final key = tag[i];
-        final value = tag[i + 1];
+    for (var i = 1; i < tag.length; i++) {
+      final element = tag[i];
+      // Each element is "key value" separated by space
+      final spaceIndex = element.indexOf(' ');
+      if (spaceIndex > 0) {
+        final key = element.substring(0, spaceIndex);
+        final value = element.substring(spaceIndex + 1);
         onKeyValue(key, value);
       }
     }
@@ -627,8 +638,14 @@ class VideoEvent {
   static bool _isValidVideoUrl(String url) {
     if (url.isEmpty) return false;
 
+    // Fix common typo: apt.openvine.co -> api.openvine.co
+    String correctedUrl = url;
+    if (url.contains('apt.openvine.co')) {
+      correctedUrl = url.replaceAll('apt.openvine.co', 'api.openvine.co');
+    }
+
     try {
-      final uri = Uri.parse(url);
+      final uri = Uri.parse(correctedUrl);
 
       // Must be HTTP or HTTPS
       if (!['http', 'https'].contains(uri.scheme.toLowerCase())) {
@@ -664,7 +681,7 @@ class VideoEvent {
 
       return false;
     } catch (e) {
-      developer.log('🔍 INVALID URL (parse error): $url - error: $e', name: 'VideoEvent');
+      developer.log('🔍 INVALID URL (parse error): $correctedUrl - error: $e', name: 'VideoEvent');
       return false;
     }
   }
@@ -676,9 +693,15 @@ class VideoEvent {
     final matches = urlRegex.allMatches(content);
 
     for (final match in matches) {
-      final url = match.group(0);
-      if (url != null && _isValidVideoUrl(url)) {
-        return url;
+      var url = match.group(0);
+      if (url != null) {
+        // Fix common typo: apt.openvine.co -> api.openvine.co
+        if (url.contains('apt.openvine.co')) {
+          url = url.replaceAll('apt.openvine.co', 'api.openvine.co');
+        }
+        if (_isValidVideoUrl(url)) {
+          return url;
+        }
       }
     }
 
@@ -694,9 +717,15 @@ class VideoEvent {
 
       // Check all tag values for potential URLs
       for (var i = 1; i < tag.length; i++) {
-        final value = tag[i];
-        if (value.isNotEmpty && _isValidVideoUrl(value)) {
-          return value;
+        var value = tag[i];
+        if (value.isNotEmpty) {
+          // Fix common typo: apt.openvine.co -> api.openvine.co
+          if (value.contains('apt.openvine.co')) {
+            value = value.replaceAll('apt.openvine.co', 'api.openvine.co');
+          }
+          if (_isValidVideoUrl(value)) {
+            return value;
+          }
         }
       }
     }
@@ -711,17 +740,21 @@ class VideoEvent {
       return null;
     }
 
+    // Fix common typo: apt.openvine.co -> api.openvine.co
+    String correctedUrl = videoUrl;
+    if (videoUrl.contains('apt.openvine.co')) {
+      correctedUrl = videoUrl.replaceAll('apt.openvine.co', 'api.openvine.co');
+    }
+
     try {
-      final uri = Uri.parse(videoUrl);
+      final uri = Uri.parse(correctedUrl);
       
-      // For api.openvine.co videos, use the thumbnail API service
-      if (uri.host.contains('api.openvine.co')) {
-        // Extract video ID from path like /media/12345
-        final pathSegments = uri.pathSegments;
-        if (pathSegments.isNotEmpty && pathSegments.first == 'media' && pathSegments.length > 1) {
-          final videoId = pathSegments[1];
-          return ThumbnailApiService.getThumbnailUrl(videoId);
-        }
+      // For api.openvine.co videos, always use the event ID for thumbnail generation
+      // This ensures consistency across all videos regardless of URL structure
+      if (uri.host.contains('api.openvine.co') || uri.host.contains('apt.openvine.co')) {
+        // Use the event ID directly for thumbnail generation
+        // This works for all OpenVine videos whether they have /media/ID or not
+        return ThumbnailApiService.getThumbnailUrl(eventId);
       }
       
       // For other video hosts, try to generate a thumbnail URL pattern

@@ -10,7 +10,8 @@ import 'package:openvine/services/nostr_service.dart';
 class NostrServiceFactory {
   /// Create the appropriate NostrService for the current platform
   static INostrService create(NostrKeyManager keyManager) {
-    // Always use NostrService which has embedded relay support for all platforms
+    // Use NostrService with embedded relay for all platforms (including web)
+    // The embedded relay handles platform differences internally
     print('NostrServiceFactory: Creating NostrService with embedded relay support');
     return NostrService(keyManager);
   }

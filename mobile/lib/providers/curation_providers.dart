@@ -177,7 +177,7 @@ class AnalyticsTrending extends _$AnalyticsTrending {
   }
 
   /// Refresh trending videos from analytics API
-  Future<void> refresh({String timeWindow = '24h'}) async {
+  Future<void> refresh({String timeWindow = '7d'}) async {
     Log.info(
       'AnalyticsTrending: Refreshing trending videos from analytics API (window: $timeWindow)',
       name: 'AnalyticsTrendingProvider',
@@ -221,6 +221,10 @@ class AnalyticsTrending extends _$AnalyticsTrending {
     
     try {
       final service = ref.read(analyticsApiServiceProvider);
+      
+      // IMPORTANT: The analytics API currently returns a fixed set of trending videos
+      // If we already have videos and the API returns the same or fewer videos,
+      // don't update state to avoid infinite loops
       final videos = await service.getTrendingVideos(
         limit: currentCount + 50,
         forceRefresh: true,
@@ -230,6 +234,12 @@ class AnalyticsTrending extends _$AnalyticsTrending {
         state = videos;
         Log.info(
           'AnalyticsTrending: Loaded ${videos.length - currentCount} more videos (total: ${videos.length})',
+          name: 'AnalyticsTrendingProvider',
+          category: LogCategory.system,
+        );
+      } else {
+        Log.warning(
+          'AnalyticsTrending: No new videos available from API (requested: ${currentCount + 50}, received: ${videos.length})',
           name: 'AnalyticsTrendingProvider',
           category: LogCategory.system,
         );
@@ -263,9 +273,9 @@ class AnalyticsPopular extends _$AnalyticsPopular {
 
     try {
       final service = ref.read(analyticsApiServiceProvider);
-      // Popular uses 1 hour window for more recent content
+      // Popular uses 7 day window to get recent popular content
       final videos = await service.getTrendingVideos(
-        timeWindow: '1h',
+        timeWindow: '7d',
         forceRefresh: true,
       );
       

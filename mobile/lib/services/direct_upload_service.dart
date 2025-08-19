@@ -77,16 +77,32 @@ class DirectUploadService  {
     List<String>? hashtags,
     void Function(double progress)? onProgress,
   }) async {
-    Log.debug('Starting direct upload for video: ${videoFile.path}',
+    Log.info('🚀 === DIRECT UPLOAD SERVICE STARTED ===',
         name: 'DirectUploadService', category: LogCategory.system);
+    Log.info('📁 Video path: ${videoFile.path}',
+        name: 'DirectUploadService', category: LogCategory.system);
+    Log.info('📊 File exists: ${videoFile.existsSync()}',
+        name: 'DirectUploadService', category: LogCategory.system);
+    if (videoFile.existsSync()) {
+      Log.info('📊 File size: ${videoFile.lengthSync()} bytes',
+          name: 'DirectUploadService', category: LogCategory.system);
+    } else {
+      Log.error('❌ VIDEO FILE DOES NOT EXIST!',
+          name: 'DirectUploadService', category: LogCategory.system);
+      return DirectUploadResult.failure('Video file does not exist at path: ${videoFile.path}');
+    }
 
     // First check backend connectivity
+    Log.info('🏥 Checking backend health...',
+        name: 'DirectUploadService', category: LogCategory.system);
     final isHealthy = await _checkBackendHealth();
     if (!isHealthy) {
       Log.error('❌ Backend is not accessible, aborting upload',
           name: 'DirectUploadService', category: LogCategory.system);
       return DirectUploadResult.failure('Backend service is not accessible. Please check your internet connection.');
     }
+    Log.info('✅ Backend is healthy, proceeding with upload',
+        name: 'DirectUploadService', category: LogCategory.system);
 
     String? videoId;
 
@@ -438,28 +454,30 @@ class DirectUploadService  {
   /// Check backend connectivity and health
   Future<bool> _checkBackendHealth() async {
     try {
-      final healthUrl = AppConfig.healthUrl;
-      Log.info('🏥 Checking backend health at: $healthUrl',
+      // Use NIP-96 info endpoint to check backend availability
+      // since /health endpoint doesn't exist
+      final nip96Url = AppConfig.nip96InfoUrl;
+      Log.info('🏥 Checking backend availability at: $nip96Url',
           name: 'DirectUploadService', category: LogCategory.system);
       
-      final response = await _httpClient.get(Uri.parse(healthUrl)).timeout(
+      final response = await _httpClient.get(Uri.parse(nip96Url)).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          throw TimeoutException('Health check timed out');
+          throw TimeoutException('Backend check timed out');
         },
       );
       
       if (response.statusCode == 200) {
-        Log.info('✅ Backend is healthy: ${response.body}',
+        Log.info('✅ Backend is available and responding',
             name: 'DirectUploadService', category: LogCategory.system);
         return true;
       } else {
-        Log.error('❌ Backend health check failed: ${response.statusCode} - ${response.body}',
+        Log.error('❌ Backend check failed: ${response.statusCode} - ${response.body}',
             name: 'DirectUploadService', category: LogCategory.system);
         return false;
       }
     } catch (e) {
-      Log.error('❌ Backend health check error: $e',
+      Log.error('❌ Backend connectivity error: $e',
           name: 'DirectUploadService', category: LogCategory.system);
       return false;
     }

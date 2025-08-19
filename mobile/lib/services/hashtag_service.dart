@@ -63,6 +63,11 @@ class HashtagService  {
       // REFACTORED: Service no longer needs manual listener cleanup
     
   }
+  
+  /// Force refresh hashtag statistics
+  void refreshHashtagStats() {
+    _updateHashtagStats();
+  }
 
   /// Update hashtag statistics from video events
   void _updateHashtagStats() {
@@ -70,7 +75,16 @@ class HashtagService  {
     final twentyFourHoursAgo = now.subtract(const Duration(hours: 24));
     final newStats = <String, HashtagStats>{};
 
-    for (final video in _videoService.discoveryVideos) {
+    // Combine videos from all sources to get complete hashtag statistics
+    final allVideos = <VideoEvent>{
+      ..._videoService.discoveryVideos,
+      ..._videoService.homeFeedVideos,
+      // Also include hashtag-specific videos if available
+      if (_videoService.getEventCount(SubscriptionType.hashtag) > 0)
+        ..._videoService.getVideos(SubscriptionType.hashtag),
+    };
+
+    for (final video in allVideos) {
       for (final hashtag in video.hashtags) {
         if (hashtag.isEmpty) continue;
 
@@ -146,6 +160,11 @@ class HashtagService  {
     
     return hashtags;
   }
+  
+  /// Get statistics for a specific hashtag
+  HashtagStats? getHashtagStats(String hashtag) {
+    return _hashtagStats[hashtag];
+  }
 
   /// Get editor's picks - curated selection of interesting hashtags
   List<String> getEditorsPicks({int limit = 25}) {
@@ -156,9 +175,6 @@ class HashtagService  {
       ..sort((a, b) => b.value.authorCount.compareTo(a.value.authorCount));
     return sorted.take(limit).map((e) => e.key).toList();
   }
-
-  /// Get statistics for a specific hashtag
-  HashtagStats? getHashtagStats(String hashtag) => _hashtagStats[hashtag];
 
   /// Get videos for specific hashtags
   List<VideoEvent> getVideosByHashtags(List<String> hashtags) =>

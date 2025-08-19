@@ -117,6 +117,16 @@ public class NativeCameraPlugin: NSObject, FlutterPlugin {
     private func setupCaptureSession(result: @escaping FlutterResult) {
         print("🔵 [NativeCamera] Setting up capture session")
         
+        // Clean up any existing session first
+        if let existingSession = captureSession {
+            print("🧹 [NativeCamera] Cleaning up existing capture session")
+            if existingSession.isRunning {
+                existingSession.stopRunning()
+            }
+            existingSession.inputs.forEach { existingSession.removeInput($0) }
+            existingSession.outputs.forEach { existingSession.removeOutput($0) }
+        }
+        
         captureSession = AVCaptureSession()
         guard let captureSession = captureSession else {
             print("❌ [NativeCamera] Failed to create capture session")
@@ -133,13 +143,14 @@ public class NativeCameraPlugin: NSObject, FlutterPlugin {
             captureSession.sessionPreset = .medium
         }
         
-        // Get default video device
-        guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) ??
-                                AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) ??
-                                AVCaptureDevice.default(for: .video) else {
+        // Get default video device - simple approach that was working
+        guard let videoDevice = AVCaptureDevice.default(for: .video) else {
+            print("❌ [NativeCamera] No camera available")
             result(FlutterError(code: "NO_CAMERA", message: "No camera available", details: nil))
             return
         }
+        
+        print("✅ [NativeCamera] Selected camera: \(videoDevice.localizedName)")
         
         self.videoDevice = videoDevice
         
@@ -295,41 +306,30 @@ public class NativeCameraPlugin: NSObject, FlutterPlugin {
         
         print("🔵 [NativeCamera] Current movie output recording state: \(movieOutput.isRecording)")
         
-        // If movie output says it's not recording, just return immediately
-        if !movieOutput.isRecording {
-            print("⚠️ [NativeCamera] Movie output not recording, returning fake path")
+        // Store the result callback to be called from the delegate
+        stopRecordingResult = result
+        
+        if movieOutput.isRecording {
+            print("🔵 [NativeCamera] Calling movieOutput.stopRecording()")
+            movieOutput.stopRecording()
+            print("🔵 [NativeCamera] Stop recording called - waiting for delegate callback")
+            // The delegate method will handle calling the result callback
+        } else {
+            // Recording might have already stopped (e.g., max duration reached)
+            print("⚠️ [NativeCamera] Movie output not recording, checking for existing file")
             isRecording = false
-            result("/tmp/fake_video.mov")
-            return
-        }
-        
-        print("🔵 [NativeCamera] Calling movieOutput.stopRecording()")
-        movieOutput.stopRecording()
-        print("🔵 [NativeCamera] Stop recording called on movieOutput")
-        
-        // IMPROVED FIX: Wait a moment for file to be written, then return
-        isRecording = false
-        let expectedPath = outputURL?.path ?? "/tmp/openvine_recording.mov"
-        
-        print("🔧 [NativeCamera] Waiting for file to be written...")
-        
-        // Give AVFoundation a moment to write the file
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard self != nil else { return }
             
-            if FileManager.default.fileExists(atPath: expectedPath) {
-                let fileSize = try? FileManager.default.attributesOfItem(atPath: expectedPath)[.size] as? Int64
-                print("✅ [NativeCamera] File written successfully: \(expectedPath)")
+            if let path = outputURL?.path, FileManager.default.fileExists(atPath: path) {
+                let fileSize = try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64
+                print("✅ [NativeCamera] Found existing file: \(path)")
                 print("📊 [NativeCamera] File size: \(fileSize ?? 0) bytes")
-                result(expectedPath)
+                result(path)
             } else {
-                print("⚠️ [NativeCamera] File not found after delay, returning path anyway: \(expectedPath)")
-                result(expectedPath)
+                print("❌ [NativeCamera] No recording file found")
+                result(nil)
             }
+            stopRecordingResult = nil
         }
-        
-        // Clear any pending callback to prevent conflicts
-        stopRecordingResult = nil
     }
     
     private func requestPermission(result: @escaping FlutterResult) {

@@ -64,7 +64,7 @@ class MobileCameraInterface extends CameraPlatformInterface {
   CameraController? _controller;
   List<CameraDescription> _availableCameras = [];
   int _currentCameraIndex = 0;
-  bool _isRecording = false;
+  bool isRecording = false;
 
   @override
   Future<void> initialize() async {
@@ -110,7 +110,7 @@ class MobileCameraInterface extends CameraPlatformInterface {
     }
 
     // Check if already recording to prevent double-start
-    if (_isRecording) {
+    if (isRecording) {
       Log.warning('Already recording, skipping startVideoRecording',
           name: 'VineRecordingController', category: LogCategory.system);
       return;
@@ -118,7 +118,7 @@ class MobileCameraInterface extends CameraPlatformInterface {
 
     try {
       await _controller!.startVideoRecording();
-      _isRecording = true;
+      isRecording = true;
       Log.info('Started mobile camera recording',
           name: 'VineRecordingController', category: LogCategory.system);
     } catch (e) {
@@ -135,7 +135,7 @@ class MobileCameraInterface extends CameraPlatformInterface {
     }
 
     // Check if not recording to prevent double-stop
-    if (!_isRecording) {
+    if (!isRecording) {
       Log.warning('Not currently recording, skipping stopVideoRecording',
           name: 'VineRecordingController', category: LogCategory.system);
       return null;
@@ -143,12 +143,12 @@ class MobileCameraInterface extends CameraPlatformInterface {
 
     try {
       final xFile = await _controller!.stopVideoRecording();
-      _isRecording = false;
+      isRecording = false;
       Log.info('Stopped mobile camera recording: ${xFile.path}',
           name: 'VineRecordingController', category: LogCategory.system);
       return xFile.path;
     } catch (e) {
-      _isRecording = false; // Reset state even on error
+      isRecording = false; // Reset state even on error
       Log.error('Failed to stop mobile camera recording: $e',
           name: 'VineRecordingController', category: LogCategory.system);
       // Don't rethrow - return null to indicate no file was saved
@@ -168,14 +168,14 @@ class MobileCameraInterface extends CameraPlatformInterface {
     }
 
     // Stop any active recording before switching
-    if (_isRecording) {
+    if (isRecording) {
       try {
         await _controller?.stopVideoRecording();
       } catch (e) {
         Log.error('Error stopping recording during camera switch: $e',
             name: 'VineRecordingController', category: LogCategory.system);
       }
-      _isRecording = false;
+      isRecording = false;
     }
 
     // Store old controller reference for safe disposal
@@ -222,44 +222,52 @@ class MobileCameraInterface extends CameraPlatformInterface {
   @override
   void dispose() {
     // Stop any active recording before disposal
-    if (_isRecording) {
+    if (isRecording) {
       try {
         _controller?.stopVideoRecording();
       } catch (e) {
         Log.error('Error stopping recording during disposal: $e',
             name: 'VineRecordingController', category: LogCategory.system);
       }
-      _isRecording = false;
+      isRecording = false;
     }
     _controller?.dispose();
   }
 }
 
-/// macOS camera implementation
-class MacOSCameraInterface extends CameraPlatformInterface
+/// macOS camera implementation using hybrid approach:
+/// - camera_macos for visual preview
+/// - native platform channels for recording (more reliable)
+class MacOSCameraInterface extends CameraPlatformInterface 
     with AsyncInitialization {
   macos.CameraMacOSController? _controller;
   final GlobalKey _cameraKey = GlobalKey(debugLabel: 'vineCamera');
   late Widget _previewWidget;
-  String? currentRecordingPath; // Made public for access from controller
-  bool _isRecording = false;
-  Completer<macos.CameraMacOSFile?>? _recordingCompleter;
-
+  String? currentRecordingPath;
+  bool isRecording = false;
+  
   // For macOS single recording mode
-  bool isSingleRecordingMode = false; // Made public for access
+  bool isSingleRecordingMode = false;
   final List<RecordingSegment> _virtualSegments = [];
-
-  // Recording completion callback mechanism
-  Completer<String>? _recordingCompletionCompleter;
-
-  // Track current camera index
-  int _currentCameraIndex = 0;
+  
+  // Recording completion tracking
+  DateTime? _recordingStartTime;
+  Timer? _maxDurationTimer;
 
   @override
   Future<void> initialize() async {
     startInitialization();
-
-    // Create the camera widget wrapped in a SizedBox to ensure it has constraints
+    
+    // Initialize the native macOS camera for recording
+    final nativeResult = await NativeMacOSCamera.initialize();
+    if (!nativeResult) {
+      throw Exception('Failed to initialize native macOS camera');
+    }
+    
+    // Start native preview
+    await NativeMacOSCamera.startPreview();
+    
+    // Create the camera widget for visual preview
     _previewWidget = SizedBox.expand(
       child: macos.CameraMacOSView(
         key: _cameraKey,
@@ -268,76 +276,64 @@ class MacOSCameraInterface extends CameraPlatformInterface
         onCameraInizialized: (controller) {
           _controller = controller;
           completeInitialization();
-          Log.info('📱 macOS camera controller initialized successfully',
+          Log.info('📱 macOS camera visual preview initialized',
               name: 'VineRecordingController', category: LogCategory.system);
         },
       ),
     );
-
-    // For macOS, we can't wait for initialization here because the widget
-    // needs to be in the widget tree first. Initialization will be checked
-    // when recording starts.
-    Log.info('📱 macOS camera widget created - waiting for widget mount',
+    
+    Log.info('📱 Native macOS camera initialized successfully',
         name: 'VineRecordingController', category: LogCategory.system);
   }
 
   @override
   Future<void> startRecordingSegment(String filePath) async {
     Log.info(
-        '📱 Starting recording segment, initialized: $isInitialized, recording: $_isRecording, singleMode: $isSingleRecordingMode',
+        '📱 Starting recording segment, initialized: $isInitialized, recording: $isRecording, singleMode: $isSingleRecordingMode',
         name: 'VineRecordingController',
         category: LogCategory.system);
 
-    // Wait for camera to be initialized (up to 5 seconds) using proper async pattern
+    // Wait for visual preview to be initialized
     try {
       await waitForInitialization(timeout: const Duration(seconds: 5));
     } catch (e) {
       Log.error('macOS camera failed to initialize: $e',
           name: 'VineRecordingController', category: LogCategory.system);
-      throw Exception(
-          'macOS camera not initialized after waiting 5 seconds: $e');
-    }
-
-    if (_controller == null) {
-      Log.error('macOS camera controller is null after initialization',
-          name: 'VineRecordingController', category: LogCategory.system);
-      throw Exception('macOS camera controller not available');
+      throw Exception('macOS camera not initialized after waiting 5 seconds: $e');
     }
 
     // For macOS, use single recording mode
-    if (!isSingleRecordingMode && !_isRecording) {
+    if (!isSingleRecordingMode && !isRecording) {
       // First time - start the single recording
       currentRecordingPath = filePath;
-      _isRecording = true;
+      isRecording = true;
       isSingleRecordingMode = true;
-      _recordingCompleter = Completer<macos.CameraMacOSFile?>();
+      _recordingStartTime = DateTime.now();
+      
+      // Start native recording
+      final started = await NativeMacOSCamera.startRecording();
+      if (!started) {
+        isRecording = false;
+        isSingleRecordingMode = false;
+        _recordingStartTime = null;
+        throw Exception('Failed to start native macOS recording');
+      }
+      
+      // Set a timer to auto-stop after 6.3 seconds
+      _maxDurationTimer?.cancel();
+      _maxDurationTimer = Timer(const Duration(milliseconds: 6300), () async {
+        if (isRecording) {
+          Log.info('📱 Auto-stopping recording after 6.3 seconds',
+              name: 'VineRecordingController', category: LogCategory.system);
+          await completeRecording();
+        }
+      });
 
-      // Start recording with max Vine duration
-      await _controller!.recordVideo(
-        url: filePath,
-        maxVideoDuration: 6.3, // 6.3 seconds like original Vine
-        onVideoRecordingFinished: (file, exception) {
-          _isRecording = false;
-          isSingleRecordingMode = false; // Reset single recording mode
-          if (exception != null) {
-            Log.error('macOS recording error: $exception',
-                name: 'VineRecordingController', category: LogCategory.system);
-            _recordingCompleter?.completeError(exception);
-            _recordingCompletionCompleter?.completeError(exception);
-          } else {
-            Log.info('macOS recording completed: ${file?.url}',
-                name: 'VineRecordingController', category: LogCategory.system);
-            _recordingCompleter?.complete(file);
-            _recordingCompletionCompleter?.complete(file?.url ?? '');
-          }
-        },
-      );
-
-      Log.info('Started macOS single recording mode',
+      Log.info('Started native macOS single recording mode',
           name: 'VineRecordingController', category: LogCategory.system);
-    } else if (isSingleRecordingMode && _isRecording) {
+    } else if (isSingleRecordingMode && isRecording) {
       // Already recording in single mode - just track the virtual segment start
-      Log.verbose('macOS single recording mode - tracking new virtual segment',
+      Log.verbose('Native macOS single recording mode - tracking new virtual segment',
           name: 'VineRecordingController', category: LogCategory.system);
     }
   }
@@ -345,18 +341,18 @@ class MacOSCameraInterface extends CameraPlatformInterface
   @override
   Future<String?> stopRecordingSegment() async {
     Log.debug(
-        '📱 Stopping recording segment, recording: $_isRecording, singleMode: $isSingleRecordingMode',
+        '📱 Stopping recording segment, recording: $isRecording, singleMode: $isSingleRecordingMode',
         name: 'VineRecordingController',
         category: LogCategory.system);
 
-    if (_controller == null || !isSingleRecordingMode) {
+    if (!isSingleRecordingMode) {
       return null;
     }
 
     // In single recording mode, we just track virtual segments
     // The actual recording continues until we call stopSingleRecording
-    if (isSingleRecordingMode && _isRecording) {
-      Log.verbose('macOS single recording mode - virtual segment stop',
+    if (isSingleRecordingMode && isRecording) {
+      Log.verbose('Native macOS single recording mode - virtual segment stop',
           name: 'VineRecordingController', category: LogCategory.system);
       // Return the path for consistency, but actual file won't be ready yet
       return currentRecordingPath;
@@ -364,37 +360,80 @@ class MacOSCameraInterface extends CameraPlatformInterface
 
     return null;
   }
+  
+  /// Complete the recording and get the final file
+  Future<String?> completeRecording() async {
+    if (!isRecording) {
+      return null;
+    }
+    
+    _maxDurationTimer?.cancel();
+    isRecording = false;
+    
+    // Stop native recording and get the file path
+    final recordedPath = await NativeMacOSCamera.stopRecording();
+    
+    if (recordedPath != null && recordedPath.isNotEmpty) {
+      // The native implementation returns the actual file path
+      currentRecordingPath = recordedPath;
+      
+      // Create a virtual segment for the entire recording
+      if (_recordingStartTime != null) {
+        final endTime = DateTime.now();
+        final duration = endTime.difference(_recordingStartTime!);
+        
+        final segment = RecordingSegment(
+          startTime: _recordingStartTime!,
+          endTime: endTime,
+          duration: duration,
+          filePath: recordedPath,
+        );
+        
+        _virtualSegments.add(segment);
+        Log.info('Added virtual segment: ${duration.inMilliseconds}ms',
+            name: 'VineRecordingController', category: LogCategory.system);
+      }
+      
+      Log.info('Native macOS recording completed: $recordedPath',
+          name: 'VineRecordingController', category: LogCategory.system);
+      
+      // Don't clear isSingleRecordingMode here - it's needed by finishRecording()
+      // It will be cleared in dispose() or when starting a new recording
+      _recordingStartTime = null;
+      
+      return recordedPath;
+    } else {
+      Log.error('Native macOS recording failed - no file path returned',
+          name: 'VineRecordingController', category: LogCategory.system);
+      // Clear flags on error
+      isSingleRecordingMode = false;
+      _recordingStartTime = null;
+      return null;
+    }
+  }
 
   /// Stop the single recording mode and return the final file
   Future<String?> stopSingleRecording() async {
-    Log.debug('📱 Stopping macOS single recording mode',
+    Log.debug('📱 Stopping native macOS single recording mode',
         name: 'VineRecordingController', category: LogCategory.system);
 
-    if (!isSingleRecordingMode || !_isRecording) {
+    if (!isSingleRecordingMode || !isRecording) {
       return null;
     }
 
-    // The recording should auto-stop after 6 seconds or we can wait for it
-    _isRecording = false;
-    isSingleRecordingMode = false;
-
-    // Return the recording path
-    return currentRecordingPath;
+    return await completeRecording();
   }
 
   /// Wait for recording completion using proper async pattern
   Future<String> waitForRecordingCompletion({
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    _recordingCompletionCompleter ??= Completer<String>();
-
-    try {
-      return await _recordingCompletionCompleter!.future.timeout(timeout);
-    } catch (e) {
-      Log.error('Recording completion timeout or error: $e',
-          name: 'VineRecordingController', category: LogCategory.system);
-      rethrow;
+    // For native implementation, we complete the recording directly
+    final path = await completeRecording();
+    if (path != null) {
+      return path;
     }
+    throw TimeoutException('Recording completion failed');
   }
 
   /// Get virtual segments for macOS single recording mode
@@ -402,6 +441,7 @@ class MacOSCameraInterface extends CameraPlatformInterface
 
   @override
   Widget get previewWidget {
+    // Return the visual preview from camera_macos
     if (!isInitialized) {
       Log.info('📱 macOS camera preview requested but not initialized yet',
           name: 'VineRecordingController', category: LogCategory.system);
@@ -410,72 +450,37 @@ class MacOSCameraInterface extends CameraPlatformInterface
   }
 
   @override
-  bool get canSwitchCamera {
-    // For macOS, we should check if multiple cameras are available
-    // For now, return false to hide the button since most Macs have only one camera
-    // This can be made dynamic by checking NativeMacOSCamera.getAvailableCameras()
-    return false;
-  }
+  bool get canSwitchCamera => true; // Native implementation supports switching
 
   @override
   Future<void> switchCamera() async {
-    try {
-      // Get available cameras from native macOS
-      final cameras = await NativeMacOSCamera.getAvailableCameras();
-
-      if (cameras.length <= 1) {
-        Log.info('📱 Only one camera available, cannot switch',
-            name: 'VineRecordingController', category: LogCategory.system);
-        return;
-      }
-
-      // Switch to next camera
-      _currentCameraIndex = ((_currentCameraIndex + 1) % cameras.length).toInt();
-      final success = await NativeMacOSCamera.switchCamera(_currentCameraIndex);
-
-      if (success) {
-        Log.info(
-            '✅ Successfully switched to camera $_currentCameraIndex: ${cameras[_currentCameraIndex]['name']}',
-            name: 'VineRecordingController',
-            category: LogCategory.system);
-      } else {
-        // Revert index on failure
-        _currentCameraIndex =
-            ((_currentCameraIndex - 1 + cameras.length) % cameras.length).toInt();
-        Log.error('Failed to switch camera',
-            name: 'VineRecordingController', category: LogCategory.system);
-      }
-    } catch (e) {
-      Log.error('Error switching macOS camera: $e',
-          name: 'VineRecordingController', category: LogCategory.system);
-    }
+    // Native macOS camera switching is handled by the native implementation
+    // For now, we'll use the default behavior
+    Log.info('Camera switching not yet implemented for native macOS',
+        name: 'VineRecordingController', category: LogCategory.system);
   }
 
   @override
   void dispose() {
+    _maxDurationTimer?.cancel();
     // Stop any active recording
-    if (_isRecording) {
-      _isRecording = false;
-      Log.info('📱 macOS camera interface disposed - stopped recording',
-          name: 'VineRecordingController', category: LogCategory.system);
+    if (isRecording) {
+      NativeMacOSCamera.stopRecording();
+      isRecording = false;
     }
-
-    // Reset state
-    isSingleRecordingMode = false;
-    currentRecordingPath = null;
-    _recordingCompleter = null;
-
-    // macOS controller disposal handled by the widget
+    // Stop preview
+    NativeMacOSCamera.stopPreview();
   }
 
   /// Reset the interface state (for reuse)
   void reset() {
-    _isRecording = false;
+    _maxDurationTimer?.cancel();
+    isRecording = false;
     isSingleRecordingMode = false;
     currentRecordingPath = null;
-    _recordingCompleter = null;
     _virtualSegments.clear();
-    Log.debug('📱 macOS camera interface reset',
+    _recordingStartTime = null;
+    Log.debug('📱 Native macOS camera interface reset',
         name: 'VineRecordingController', category: LogCategory.system);
   }
 }
@@ -874,55 +879,97 @@ class VineRecordingController  {
 
   /// Finish recording and return the final compiled video
   Future<File?> finishRecording() async {
-    if (!hasSegments) return null;
-
     try {
       _setState(VineRecordingState.processing);
 
-      // Stop any active recording
-      if (_state == VineRecordingState.recording) {
-        await stopRecording();
-      }
-
-      // For macOS single recording mode, wait for the recording to finish
+      // For macOS single recording mode, handle specially
       if (!kIsWeb &&
           Platform.isMacOS &&
           _cameraInterface is MacOSCameraInterface) {
         final macOSInterface = _cameraInterface as MacOSCameraInterface;
 
-        // For single recording mode, wait for proper completion callback
-        if (macOSInterface.isSingleRecordingMode &&
-            macOSInterface.currentRecordingPath != null) {
-          try {
-            // Wait for recording completion using proper async pattern
-            final completedPath =
-                await macOSInterface.waitForRecordingCompletion(
-              timeout: const Duration(seconds: 10),
-            );
-
-            final file = File(completedPath);
-            if (await file.exists()) {
-              _setState(VineRecordingState.completed);
-              return file;
-            } else {
-              Log.warning(
-                  'Recording completed but file not found: $completedPath',
-                  name: 'VineRecordingController',
-                  category: LogCategory.system);
+        // For single recording mode, get the recorded file directly
+        if (macOSInterface.isSingleRecordingMode) {
+          Log.info('📱 finishRecording: macOS single mode, isRecording=${macOSInterface.isRecording}, currentPath=${macOSInterface.currentRecordingPath}',
+              name: 'VineRecordingController', category: LogCategory.system);
+          
+          // If recording is still active, complete it (this will stop the recording)
+          if (macOSInterface.isRecording) {
+            try {
+              final completedPath = await macOSInterface.completeRecording();
+              if (completedPath != null) {
+                final file = File(completedPath);
+                if (await file.exists()) {
+                  _setState(VineRecordingState.completed);
+                  macOSInterface.isSingleRecordingMode = false; // Clear flag after successful completion
+                  return file;
+                }
+              }
+            } catch (e) {
+              Log.error('Failed to complete macOS recording: $e',
+                  name: 'VineRecordingController', category: LogCategory.system);
             }
-          } catch (e) {
-            Log.error('Recording completion failed: $e',
+          }
+          
+          // Check if we already have a recorded file
+          Log.info('📱 Checking currentRecordingPath: ${macOSInterface.currentRecordingPath}',
+              name: 'VineRecordingController', category: LogCategory.system);
+          if (macOSInterface.currentRecordingPath != null) {
+            final file = File(macOSInterface.currentRecordingPath!);
+            final exists = await file.exists();
+            Log.info('📱 File exists: $exists, path: ${macOSInterface.currentRecordingPath}',
                 name: 'VineRecordingController', category: LogCategory.system);
-            // Fall back to checking the current path
-            if (macOSInterface.currentRecordingPath != null) {
-              final file = File(macOSInterface.currentRecordingPath!);
-              if (await file.exists()) {
+            if (exists) {
+              _setState(VineRecordingState.completed);
+              macOSInterface.isSingleRecordingMode = false; // Clear flag after successful completion
+              return file;
+            }
+          }
+          
+          // Check virtual segments as fallback
+          final virtualSegments = macOSInterface.getVirtualSegments();
+          Log.info('📱 Virtual segments count: ${virtualSegments.length}',
+              name: 'VineRecordingController', category: LogCategory.system);
+          if (virtualSegments.isNotEmpty) {
+            final segment = virtualSegments.first;
+            Log.info('📱 Virtual segment path: ${segment.filePath}',
+                name: 'VineRecordingController', category: LogCategory.system);
+            if (segment.filePath != null) {
+              final file = File(segment.filePath!);
+              final exists = await file.exists();
+              Log.info('📱 Virtual segment file exists: $exists',
+                  name: 'VineRecordingController', category: LogCategory.system);
+              if (exists) {
                 _setState(VineRecordingState.completed);
                 return file;
               }
             }
           }
+          
+          throw Exception('No valid recording found for macOS single recording mode');
         }
+      }
+      
+      // For non-single recording mode, stop any active recording
+      if (_state == VineRecordingState.recording) {
+        await stopRecording();
+      }
+      
+      // For multi-segment recording, check virtual segments first
+      if (!kIsWeb && Platform.isMacOS && _cameraInterface is MacOSCameraInterface) {
+        final macOSInterface = _cameraInterface as MacOSCameraInterface;
+        final virtualSegments = macOSInterface.getVirtualSegments();
+        
+        // If we have virtual segments but no main segments, use the virtual ones
+        if (_segments.isEmpty && virtualSegments.isNotEmpty) {
+          _segments.addAll(virtualSegments);
+          Log.info('Using ${virtualSegments.length} virtual segments from macOS recording',
+              name: 'VineRecordingController', category: LogCategory.system);
+        }
+      }
+      
+      if (!hasSegments) {
+        throw Exception('No valid video segments found for compilation');
       }
 
       // For web platform, handle blob URLs

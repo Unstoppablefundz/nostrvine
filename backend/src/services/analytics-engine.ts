@@ -170,7 +170,7 @@ export class VideoAnalyticsEngineService {
   }): Promise<void> {
     try {
       // Write to Analytics Engine dataset
-      this.env.VIDEO_ANALYTICS.writeDataPoint(data);
+      await this.env.VIDEO_ANALYTICS.writeDataPoint(data);
     } catch (error) {
       console.error('Failed to write to Analytics Engine:', error);
     }
@@ -186,7 +186,7 @@ export class VideoAnalyticsEngineService {
   }): Promise<void> {
     try {
       // Write to Analytics Engine dataset (same dataset, different data structure)
-      this.env.VIDEO_ANALYTICS.writeDataPoint(data);
+      await this.env.VIDEO_ANALYTICS.writeDataPoint(data);
     } catch (error) {
       console.error('Failed to write social analytics to Analytics Engine:', error);
     }

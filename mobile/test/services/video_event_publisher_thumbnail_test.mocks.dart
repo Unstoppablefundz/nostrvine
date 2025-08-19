@@ -296,6 +296,27 @@ class MockUploadManager extends _i1.Mock implements _i6.UploadManager {
       ) as _i7.Future<void>);
 
   @override
+  _i7.Future<void> updateUploadMetadata(
+    String? uploadId, {
+    String? title,
+    String? description,
+    List<String>? hashtags,
+  }) =>
+      (super.noSuchMethod(
+        Invocation.method(
+          #updateUploadMetadata,
+          [uploadId],
+          {
+            #title: title,
+            #description: description,
+            #hashtags: hashtags,
+          },
+        ),
+        returnValue: _i7.Future<void>.value(),
+        returnValueForMissingStub: _i7.Future<void>.value(),
+      ) as _i7.Future<void>);
+
+  @override
   _i7.Future<void> cleanupProblematicUploads() => (super.noSuchMethod(
         Invocation.method(
           #cleanupProblematicUploads,

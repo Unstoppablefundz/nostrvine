@@ -119,7 +119,7 @@ class AnalyticsApiService {
 
   /// Fetch trending videos with viral scoring
   Future<List<VideoEvent>> getTrendingVideos({
-    String timeWindow = '24h',
+    String timeWindow = '7d', // Use 7 days for broader time window
     int limit = 100,
     bool forceRefresh = false,
   }) async {

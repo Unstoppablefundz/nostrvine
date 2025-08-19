@@ -1,8 +1,12 @@
 // ABOUTME: Search screen for finding videos, users, and hashtags in the OpenVine network
 // ABOUTME: Provides real-time search functionality with filters and categories
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nostr_sdk/filter.dart';
 import 'package:nostr_sdk/nip19/nip19.dart';
 import 'package:openvine/main.dart';
 import 'package:openvine/models/video_event.dart';
@@ -21,6 +25,7 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   late TabController _tabController;
 
   List<VideoEvent> _videoResults = [];
@@ -29,17 +34,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   bool _isSearching = false;
   String _currentQuery = '';
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _searchController.addListener(_onSearchChanged);
+    
+    // Request focus after a short delay to avoid Chrome keyboard issues
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          _searchFocusNode.requestFocus();
+        }
+      });
+    });
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _tabController.dispose();
     
     super.dispose();
@@ -49,21 +66,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final query = _searchController.text.trim();
     if (query != _currentQuery) {
       _currentQuery = query;
+      
+      // Cancel any existing timer
+      _debounceTimer?.cancel();
+      
       if (query.isNotEmpty) {
-        _performSearch(query);
+        // Debounce search to avoid rapid queries
+        _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+          if (mounted && _currentQuery == query) {
+            _performSearch(query);
+          }
+        });
       } else {
         _clearResults();
       }
     }
   }
 
-  void _performSearch(String query) {
+  void _performSearch(String query) async {
     setState(() {
       _isSearching = true;
     });
 
     try {
       final videoEventService = ref.read(videoEventServiceProvider);
+      final nostrService = ref.read(nostrServiceProvider);
 
       // Check if query is an npub identifier
       String? searchPubkey;
@@ -79,49 +106,152 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         }
       }
 
-      // Search videos by title, content, hashtags, and author pubkey
-      final videoResults = videoEventService.discoveryVideos.where((video) {
-        // If we have a decoded npub, search by author
-        if (searchPubkey != null) {
-          return video.pubkey == searchPubkey;
+      // Perform proper Nostr search through the embedded relay
+      final searchResults = <VideoEvent>[];
+      final processedEventIds = <String>{};
+      
+      // If searching for a specific user, filter by author
+      final searchStream = nostrService.searchVideos(
+        query,
+        authors: searchPubkey != null ? [searchPubkey] : null,
+        limit: 200,
+      );
+      
+      // Collect search results from the relay
+      await for (final event in searchStream) {
+        if (!processedEventIds.contains(event.id)) {
+          processedEventIds.add(event.id);
+          try {
+            final videoEvent = VideoEvent.fromNostrEvent(event);
+            searchResults.add(videoEvent);
+          } catch (e) {
+            Log.error('Failed to parse video event: $e',
+                name: 'SearchScreen', category: LogCategory.ui);
+          }
         }
+      }
 
-        // Otherwise search by content
-        final titleMatch =
-            video.title?.toLowerCase().contains(query.toLowerCase()) ?? false;
-        final contentMatch =
-            video.content.toLowerCase().contains(query.toLowerCase());
-        final hashtagMatch = video.hashtags
-            .any((tag) => tag.toLowerCase().contains(query.toLowerCase()));
-        return titleMatch || contentMatch || hashtagMatch;
-      }).toList();
+      // Also search through locally cached videos for immediate results
+      final allCachedVideos = <VideoEvent>[];
+      allCachedVideos.addAll(videoEventService.discoveryVideos);
+      allCachedVideos.addAll(videoEventService.homeFeedVideos);
+      if (videoEventService.profileVideos.isNotEmpty) {
+        allCachedVideos.addAll(videoEventService.profileVideos);
+      }
+      if (videoEventService.editorialVideos.isNotEmpty) {
+        allCachedVideos.addAll(videoEventService.editorialVideos);
+      }
+      
+      // Add cached videos that match but weren't in relay results
+      for (final video in allCachedVideos) {
+        if (!processedEventIds.contains(video.id)) {
+          bool matches = false;
+          
+          // If we have a decoded npub, search by author
+          if (searchPubkey != null) {
+            matches = video.pubkey == searchPubkey;
+          } else {
+            // Otherwise search by content
+            final titleMatch =
+                video.title?.toLowerCase().contains(query.toLowerCase()) ?? false;
+            final contentMatch =
+                video.content.toLowerCase().contains(query.toLowerCase());
+            final hashtagMatch = video.hashtags
+                .any((tag) => tag.toLowerCase().contains(query.toLowerCase()));
+            matches = titleMatch || contentMatch || hashtagMatch;
+          }
+          
+          if (matches) {
+            searchResults.add(video);
+            processedEventIds.add(video.id);
+          }
+        }
+      }
 
-      // Get hashtags that match the query
-      final allHashtags = videoEventService.getAllHashtags();
-      final hashtagResults = allHashtags
-          .where((tag) => tag.toLowerCase().contains(query.toLowerCase()))
-          .toList();
+      // Sort results by timestamp (newest first)
+      searchResults.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      // Get unique authors from video results for user search
+      // Search for user profiles that match the query
       final userResults = <String>{};
-
+      
       // If we decoded an npub, add that user to results
       if (searchPubkey != null) {
         userResults.add(searchPubkey);
+      } else {
+        // Search for user profiles by name/about content
+        try {
+          // Query for Kind 0 (profile) events that contain the search query
+          final profileFilter = Filter(
+            kinds: [0], // Profile metadata events
+            limit: 50,
+          );
+          
+          final profileEvents = await nostrService.getEvents(
+            filters: [profileFilter],
+            limit: 50,
+          );
+          
+          // Filter profiles that match the search query
+          for (final event in profileEvents) {
+            try {
+              // Parse profile metadata
+              final metadata = jsonDecode(event.content) as Map<String, dynamic>;
+              final name = metadata['name']?.toString() ?? '';
+              final displayName = metadata['display_name']?.toString() ?? '';
+              final about = metadata['about']?.toString() ?? '';
+              final nip05 = metadata['nip05']?.toString() ?? '';
+              
+              // Check if any profile field matches the query
+              if (name.toLowerCase().contains(query.toLowerCase()) ||
+                  displayName.toLowerCase().contains(query.toLowerCase()) ||
+                  about.toLowerCase().contains(query.toLowerCase()) ||
+                  nip05.toLowerCase().contains(query.toLowerCase())) {
+                userResults.add(event.pubkey);
+              }
+            } catch (e) {
+              // Skip invalid profile metadata
+            }
+          }
+        } catch (e) {
+          Log.error('Failed to search user profiles: $e',
+              name: 'SearchScreen', category: LogCategory.ui);
+        }
       }
 
-      // Add authors from video results
-      userResults.addAll(videoResults.map((video) => video.pubkey));
+      // Also add authors from video results
+      userResults.addAll(searchResults.map((video) => video.pubkey));
+
+      // Search for hashtags across all videos in the network
+      final hashtagResults = <String>{};
+      
+      // Get hashtags from search results
+      for (final video in searchResults) {
+        for (final tag in video.hashtags) {
+          if (tag.toLowerCase().contains(query.toLowerCase())) {
+            hashtagResults.add(tag);
+          }
+        }
+      }
+      
+      // Also include hashtags from cached videos
+      final allCachedHashtags = videoEventService.getAllHashtags();
+      for (final tag in allCachedHashtags) {
+        if (tag.toLowerCase().contains(query.toLowerCase())) {
+          hashtagResults.add(tag);
+        }
+      }
+      
+      final sortedHashtags = hashtagResults.toList()..sort();
 
       setState(() {
-        _videoResults = videoResults;
-        _hashtagResults = hashtagResults;
+        _videoResults = searchResults;
+        _hashtagResults = sortedHashtags;
         _userResults = userResults.toList();
         _isSearching = false;
       });
 
       Log.debug(
-          'Search results for "$query": ${videoResults.length} videos, ${userResults.length} users, ${hashtagResults.length} hashtags',
+          'Search results for "$query": ${searchResults.length} videos (${searchResults.length - allCachedVideos.length} from relay), ${userResults.length} users, ${hashtagResults.length} hashtags',
           name: 'SearchScreen',
           category: LogCategory.ui);
     } catch (e) {
@@ -154,15 +284,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           ),
           title: TextField(
             controller: _searchController,
-            autofocus: true,
+            focusNode: _searchFocusNode,
+            autofocus: false, // Disable autofocus to prevent Chrome issues
             enableInteractiveSelection: true,
+            keyboardType: TextInputType.text,
+            textInputAction: TextInputAction.search,
             style: const TextStyle(color: VineTheme.whiteText),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Search videos, users, npub, hashtags...',
-              hintStyle: TextStyle(color: VineTheme.whiteText),
+              hintStyle: const TextStyle(color: VineTheme.whiteText),
               border: InputBorder.none,
-              suffixIcon: Icon(Icons.search, color: VineTheme.whiteText),
+              suffixIcon: _currentQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, color: VineTheme.whiteText),
+                      onPressed: () {
+                        _searchController.clear();
+                        _clearResults();
+                      },
+                    )
+                  : const Icon(Icons.search, color: VineTheme.whiteText),
             ),
+            onSubmitted: (value) {
+              if (value.trim().isNotEmpty) {
+                _performSearch(value.trim());
+              }
+            },
           ),
           bottom: _currentQuery.isNotEmpty
               ? TabBar(
@@ -571,7 +717,7 @@ class _UserSearchResultCard extends StatelessWidget {
       );
 }
 
-class _HashtagSearchResultCard extends StatelessWidget {
+class _HashtagSearchResultCard extends ConsumerStatefulWidget {
   const _HashtagSearchResultCard({
     required this.hashtag,
     required this.onTap,
@@ -580,7 +726,80 @@ class _HashtagSearchResultCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
+  ConsumerState<_HashtagSearchResultCard> createState() => _HashtagSearchResultCardState();
+}
+
+class _HashtagSearchResultCardState extends ConsumerState<_HashtagSearchResultCard> {
+  int _videoCount = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHashtagCount();
+  }
+
+  Future<void> _loadHashtagCount() async {
+    try {
+      final nostrService = ref.read(nostrServiceProvider);
+      
+      // Query for videos with this hashtag
+      // Note: Nostr SDK Filter doesn't have a direct 'tags' parameter
+      // We need to get all videos and filter client-side
+      final filter = Filter(
+        kinds: [32222], // Video events
+        limit: 1000,
+      );
+      
+      final events = await nostrService.getEvents(
+        filters: [filter],
+        limit: 1000,
+      );
+      
+      // Filter events that have this hashtag
+      final eventsWithHashtag = events.where((event) {
+        // Check if event has 't' tags with this hashtag
+        for (final tag in event.tags) {
+          if (tag.length >= 2 && tag[0] == 't' && 
+              tag[1].toLowerCase() == widget.hashtag.toLowerCase()) {
+            return true;
+          }
+        }
+        return false;
+      }).toList();
+      
+      if (mounted) {
+        setState(() {
+          _videoCount = eventsWithHashtag.length;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      // Fall back to cached count
+      final videoEventService = ref.read(videoEventServiceProvider);
+      final allVideos = <VideoEvent>[];
+      allVideos.addAll(videoEventService.discoveryVideos);
+      allVideos.addAll(videoEventService.homeFeedVideos);
+      
+      final uniqueVideos = <String>{};
+      for (final video in allVideos) {
+        if (video.hashtags.any((tag) => tag.toLowerCase() == widget.hashtag.toLowerCase())) {
+          uniqueVideos.add(video.id);
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _videoCount = uniqueVideos.length;
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
         color: Colors.grey[900],
         child: ListTile(
           leading: Container(
@@ -591,22 +810,35 @@ class _HashtagSearchResultCard extends StatelessWidget {
               color: VineTheme.vineGreen.withValues(alpha: 0.2),
               border: Border.all(color: VineTheme.vineGreen, width: 1),
             ),
-            child: const Icon(
-              Icons.tag,
-              color: VineTheme.vineGreen,
-              size: 20,
-            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: VineTheme.vineGreen,
+                    ),
+                  )
+                : const Icon(
+                    Icons.tag,
+                    color: VineTheme.vineGreen,
+                    size: 20,
+                  ),
           ),
           title: Text(
-            '#$hashtag',
+            '#${widget.hashtag}',
             style: const TextStyle(
               color: VineTheme.whiteText,
               fontWeight: FontWeight.bold,
             ),
           ),
-          subtitle: const Text(
-            'Tap to search videos with this hashtag',
-            style: TextStyle(
+          subtitle: Text(
+            _isLoading
+                ? 'Loading...'
+                : _videoCount > 0 
+                    ? '$_videoCount ${_videoCount == 1 ? 'video' : 'videos'} with this hashtag'
+                    : 'Tap to search videos with this hashtag',
+            style: const TextStyle(
               color: VineTheme.secondaryText,
               fontSize: 12,
             ),
@@ -616,7 +848,8 @@ class _HashtagSearchResultCard extends StatelessWidget {
             color: VineTheme.secondaryText,
             size: 16,
           ),
-          onTap: onTap,
+          onTap: widget.onTap,
         ),
       );
+  }
 }

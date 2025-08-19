@@ -165,7 +165,15 @@ class NativeMacOSCamera {
   static Future<List<Map<String, dynamic>>> getAvailableCameras() async {
     try {
       final result = await _channel.invokeMethod<List>('getAvailableCameras');
-      return result?.cast<Map<String, dynamic>>() ?? [];
+      if (result == null) return [];
+      
+      // Safely convert each item to Map<String, dynamic>
+      return result.map((item) {
+        if (item is Map) {
+          return Map<String, dynamic>.from(item);
+        }
+        return <String, dynamic>{};
+      }).toList();
     } catch (e) {
       Log.error('Failed to get available cameras: $e',
           name: 'NativeMacosCamera', category: LogCategory.video);

@@ -287,6 +287,15 @@ class MockHashtagService extends _i1.Mock implements _i8.HashtagService {
       );
 
   @override
+  void refreshHashtagStats() => super.noSuchMethod(
+        Invocation.method(
+          #refreshHashtagStats,
+          [],
+        ),
+        returnValueForMissingStub: null,
+      );
+
+  @override
   List<String> getTrendingHashtags({int? limit = 25}) => (super.noSuchMethod(
         Invocation.method(
           #getTrendingHashtags,
@@ -307,6 +316,13 @@ class MockHashtagService extends _i1.Mock implements _i8.HashtagService {
       ) as List<String>);
 
   @override
+  _i8.HashtagStats? getHashtagStats(String? hashtag) =>
+      (super.noSuchMethod(Invocation.method(
+        #getHashtagStats,
+        [hashtag],
+      )) as _i8.HashtagStats?);
+
+  @override
   List<String> getEditorsPicks({int? limit = 25}) => (super.noSuchMethod(
         Invocation.method(
           #getEditorsPicks,
@@ -315,13 +331,6 @@ class MockHashtagService extends _i1.Mock implements _i8.HashtagService {
         ),
         returnValue: <String>[],
       ) as List<String>);
-
-  @override
-  _i8.HashtagStats? getHashtagStats(String? hashtag) =>
-      (super.noSuchMethod(Invocation.method(
-        #getHashtagStats,
-        [hashtag],
-      )) as _i8.HashtagStats?);
 
   @override
   List<_i4.VideoEvent> getVideosByHashtags(List<String>? hashtags) =>
@@ -658,6 +667,16 @@ class MockVideoEventService extends _i1.Mock implements _i9.VideoEventService {
         returnValue: _i6.Future<void>.value(),
         returnValueForMissingStub: _i6.Future<void>.value(),
       ) as _i6.Future<void>);
+
+  @override
+  void resetPaginationState(_i9.SubscriptionType? subscriptionType) =>
+      super.noSuchMethod(
+        Invocation.method(
+          #resetPaginationState,
+          [subscriptionType],
+        ),
+        returnValueForMissingStub: null,
+      );
 
   @override
   _i6.Future<void> loadMoreContentUnlimited({

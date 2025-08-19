@@ -1,55 +1,54 @@
 // ABOUTME: Handler for trending vines (videos) endpoint - returns top performing videos
 // ABOUTME: Provides data for popular content discovery in mobile app and website
 
-import { AnalyticsEnv, TrendingVideo } from '../types/analytics';
-import { calculateTrendingScore, getTrending } from '../services/trending-calculator';
+import { AnalyticsEnv } from '../types/analytics';
+import { TrendingAnalyticsEngineService } from '../services/trending-analytics-engine';
 
 export async function handleTrendingVines(
   request: Request,
-  env: AnalyticsEnv
+  env: AnalyticsEnv,
+  ctx?: ExecutionContext
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
-    const minViews = parseInt(env.MIN_VIEWS_FOR_TRENDING || '1'); // Default to 1 view minimum
-
-    // Try to get cached trending data first (with extended cache tolerance)
-    const cachedTrending = await getTrending(env);
+    const window = (url.searchParams.get('window') || '24h') as '1h' | '24h' | '7d' | 'all';
     
-    // If we have cached data, return it immediately (even if slightly stale)
-    if (cachedTrending && (cachedTrending.videos.length > 0 || Date.now() - cachedTrending.updatedAt < 900000)) { // 15 min tolerance
-      const response = {
-        vines: cachedTrending.videos.slice(0, limit),
-        algorithm: 'global_popularity',
-        updatedAt: cachedTrending.updatedAt,
-        period: '24h',
-        totalVines: cachedTrending.videos.length
-      };
-
-      return new Response(JSON.stringify(response), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=300', // 5 minute cache
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
+    // Create service instance
+    const trendingService = new TrendingAnalyticsEngineService(env as any, ctx || { waitUntil: () => {}, passThroughOnException: () => {} });
+    
+    // First try to get cached trending data for fast response
+    const cachedVideos = await trendingService.getCachedTrending(window);
+    
+    // If we have cached data, use it
+    let trendingVideos = cachedVideos;
+    
+    // If no cache or empty, fetch fresh data
+    if (!trendingVideos || trendingVideos.length === 0) {
+      trendingVideos = await trendingService.getTrendingVideos(window, limit);
+      
+      // Cache the results for next time if we got data
+      if (trendingVideos.length > 0 && ctx) {
+        ctx.waitUntil(trendingService.cacheTrendingData());
+      }
     }
     
-    // If no cache, return empty list (calculation happens in background)
-    const trendingVines: TrendingVideo[] = [];
-
-    // Sort by trending score and limit results
-    const topVines = trendingVines
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
+    // Transform to match expected API format
     const response = {
-      vines: topVines,
-      algorithm: 'global_popularity',
+      vines: trendingVideos.slice(0, limit).map(video => ({
+        eventId: video.videoId,
+        views: video.views,
+        score: video.viralScore,
+        uniqueViewers: video.uniqueViewers,
+        avgCompletion: video.avgCompletion,
+        title: video.title,
+        creatorPubkey: video.creatorPubkey,
+        hashtags: video.hashtags
+      })),
+      algorithm: 'viral_score_v2',
       updatedAt: Date.now(),
-      period: '24h', // Could make this configurable
-      totalVines: trendingVines.length
+      period: window,
+      totalVines: trendingVideos.length
     };
 
     return new Response(JSON.stringify(response), {

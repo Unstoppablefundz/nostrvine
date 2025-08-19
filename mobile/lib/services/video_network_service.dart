@@ -102,6 +102,7 @@ class VideoNetworkService {
 
     // Create subscription
     try {
+      // Single source of events: use SubscriptionManager only to avoid duplicate listeners
       _activeSubscriptionId = await _subscriptionManager.createSubscription(
         name: 'video_feed',
         filters: filters,
@@ -109,17 +110,6 @@ class VideoNetworkService {
         onError: _handleError,
         onComplete: _handleDone,
       );
-
-      // Also subscribe directly to the stream
-      _eventSubscription = _nostrService
-          .subscribeToEvents(
-            filters: filters,
-          )
-          .listen(
-            _handleVideoEvent,
-            onError: _handleError,
-            onDone: _handleDone,
-          );
 
       _isSubscribed = true;
       _currentSubscriptionParams = newParams;

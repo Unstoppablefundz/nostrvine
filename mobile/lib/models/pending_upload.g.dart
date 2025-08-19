@@ -36,7 +36,7 @@ class PendingUploadAdapter extends TypeAdapter<PendingUpload> {
       retryCount: fields[14] as int?,
       videoWidth: fields[17] as int?,
       videoHeight: fields[18] as int?,
-      videoDuration: fields[19] as Duration?,
+      videoDurationMillis: fields[19] as int?,
     );
   }
 
@@ -83,7 +83,7 @@ class PendingUploadAdapter extends TypeAdapter<PendingUpload> {
       ..writeByte(18)
       ..write(obj.videoHeight)
       ..writeByte(19)
-      ..write(obj.videoDuration);
+      ..write(obj.videoDurationMillis);
   }
 
   @override

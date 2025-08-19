@@ -56,7 +56,7 @@ class PendingUpload {
     this.retryCount = 0,
     this.videoWidth,
     this.videoHeight,
-    this.videoDuration,
+    this.videoDurationMillis,
   });
 
   /// Create a new pending upload
@@ -83,7 +83,7 @@ class PendingUpload {
         hashtags: hashtags,
         videoWidth: videoWidth,
         videoHeight: videoHeight,
-        videoDuration: videoDuration,
+        videoDurationMillis: videoDuration?.inMilliseconds,
       );
   @HiveField(0)
   final String id;
@@ -143,7 +143,12 @@ class PendingUpload {
   final int? videoHeight;
 
   @HiveField(19)
-  final Duration? videoDuration;
+  final int? videoDurationMillis; // Store as milliseconds for Hive
+  
+  /// Get video duration as Duration object
+  Duration? get videoDuration => videoDurationMillis != null 
+      ? Duration(milliseconds: videoDurationMillis!) 
+      : null;
 
   /// Copy with updated fields
   PendingUpload copyWith({
@@ -188,7 +193,7 @@ class PendingUpload {
         retryCount: retryCount ?? this.retryCount,
         videoWidth: videoWidth ?? this.videoWidth,
         videoHeight: videoHeight ?? this.videoHeight,
-        videoDuration: videoDuration ?? this.videoDuration,
+        videoDurationMillis: (videoDuration ?? this.videoDuration)?.inMilliseconds,
       );
 
   /// Check if the upload is in a terminal state

@@ -188,10 +188,26 @@ class UploadManager  {
     int? videoHeight,
     Duration? videoDuration,
   }) async {
-    Log.debug('Starting new upload: ${videoFile.path}',
+    Log.info('🚀 === STARTING UPLOAD ===',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📁 Video path: ${videoFile.path}',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📊 File exists: ${videoFile.existsSync()}',
+        name: 'UploadManager', category: LogCategory.video);
+    if (videoFile.existsSync()) {
+      Log.info('📊 File size: ${videoFile.lengthSync()} bytes',
+          name: 'UploadManager', category: LogCategory.video);
+    }
+    Log.info('👤 Nostr pubkey: ${nostrPubkey.substring(0, 8)}...',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📝 Title: $title',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('🏷️ Hashtags: $hashtags',
         name: 'UploadManager', category: LogCategory.video);
 
     // Create pending upload record
+    Log.info('📦 Creating PendingUpload record...',
+        name: 'UploadManager', category: LogCategory.video);
     final upload = PendingUpload.create(
       localVideoPath: videoFile.path,
       nostrPubkey: nostrPubkey,
@@ -203,34 +219,73 @@ class UploadManager  {
       videoHeight: videoHeight,
       videoDuration: videoDuration,
     );
+    Log.info('✅ Created upload with ID: ${upload.id}',
+        name: 'UploadManager', category: LogCategory.video);
 
     // Save to local storage
+    Log.info('💾 Saving upload to local storage...',
+        name: 'UploadManager', category: LogCategory.video);
     await _saveUpload(upload);
+    Log.info('✅ Upload saved to storage',
+        name: 'UploadManager', category: LogCategory.video);
 
     // Start the upload process
-    _performUpload(upload);
+    Log.info('🔄 Starting background upload process...',
+        name: 'UploadManager', category: LogCategory.video);
+    
+    // Start upload in background but catch any immediate errors
+    _performUpload(upload).catchError((error) {
+      Log.error('❌ Background upload failed to start: $error',
+          name: 'UploadManager', category: LogCategory.video);
+    });
 
+    Log.info('✅ Upload initiated with ID: ${upload.id}',
+        name: 'UploadManager', category: LogCategory.video);
     return upload;
   }
 
   /// Perform upload with circuit breaker and retry logic
   Future<void> _performUpload(PendingUpload upload) async {
+    Log.info('🏃 === PERFORM UPLOAD STARTED ===',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('🆔 Upload ID: ${upload.id}',
+        name: 'UploadManager', category: LogCategory.video);
+    
     final startTime = DateTime.now();
     final videoFile = File(upload.localVideoPath);
+    
+    Log.info('📁 Checking video file: ${upload.localVideoPath}',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📊 File exists: ${videoFile.existsSync()}',
+        name: 'UploadManager', category: LogCategory.video);
+    
+    if (!videoFile.existsSync()) {
+      Log.error('❌ VIDEO FILE DOES NOT EXIST!',
+          name: 'UploadManager', category: LogCategory.video);
+      await _handleUploadFailure(upload, Exception('Video file not found'));
+      return;
+    }
 
     // Initialize metrics
+    final fileSizeMB = videoFile.lengthSync() / (1024 * 1024);
+    Log.info('📊 File size: ${fileSizeMB.toStringAsFixed(2)} MB',
+        name: 'UploadManager', category: LogCategory.video);
+    
     _uploadMetrics[upload.id] = UploadMetrics(
       uploadId: upload.id,
       startTime: startTime,
       retryCount: upload.retryCount ?? 0,
-      fileSizeMB:
-          videoFile.existsSync() ? videoFile.lengthSync() / (1024 * 1024) : 0,
+      fileSizeMB: fileSizeMB,
       wasSuccessful: false,
     );
 
     try {
+      Log.info('🔁 Starting upload with retry logic...',
+          name: 'UploadManager', category: LogCategory.video);
       await _performUploadWithRetry(upload, videoFile);
     } catch (e) {
+      Log.error('❌ Upload failed: $e',
+          name: 'UploadManager', category: LogCategory.video);
       await _handleUploadFailure(upload, e);
     }
   }
@@ -294,8 +349,20 @@ class UploadManager  {
 
   /// Execute upload with timeout and progress tracking
   Future<dynamic> _executeUploadWithTimeout(
-          PendingUpload upload, File videoFile) async =>
-      _uploadService
+          PendingUpload upload, File videoFile) async {
+    Log.info('📤 === EXECUTING UPLOAD ===',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📁 Video: ${videoFile.path}',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('👤 Pubkey: ${upload.nostrPubkey.substring(0, 8)}...',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('📝 Title: ${upload.title}',
+        name: 'UploadManager', category: LogCategory.video);
+    Log.info('⏱️ Timeout: ${_retryConfig.networkTimeout.inMinutes} minutes',
+        name: 'UploadManager', category: LogCategory.video);
+    
+    try {
+      final result = await _uploadService
           .uploadVideo(
         videoFile: videoFile,
         nostrPubkey: upload.nostrPubkey,
@@ -303,16 +370,30 @@ class UploadManager  {
         description: upload.description,
         hashtags: upload.hashtags,
         onProgress: (progress) {
+          Log.info('📊 Upload progress: ${(progress * 100).toStringAsFixed(1)}%',
+              name: 'UploadManager', category: LogCategory.video);
           _updateUploadProgress(upload.id, progress);
         },
       )
           .timeout(
         _retryConfig.networkTimeout,
         onTimeout: () {
+          Log.error('⏱️ Upload timed out!',
+              name: 'UploadManager', category: LogCategory.video);
           throw TimeoutException(
               'Upload timed out after ${_retryConfig.networkTimeout.inMinutes} minutes');
         },
       );
+      
+      Log.info('✅ Upload execution completed',
+          name: 'UploadManager', category: LogCategory.video);
+      return result;
+    } catch (e) {
+      Log.error('❌ Upload execution failed: $e',
+          name: 'UploadManager', category: LogCategory.video);
+      rethrow;
+    }
+  }
 
   /// Handle successful upload
   Future<void> _handleUploadSuccess(
@@ -651,11 +732,20 @@ class UploadManager  {
   /// Save upload to local storage
   Future<void> _saveUpload(PendingUpload upload) async {
     if (_uploadsBox == null) {
+      Log.error('❌ UploadManager not initialized - _uploadsBox is null!',
+          name: 'UploadManager', category: LogCategory.video);
       throw Exception('UploadManager not initialized');
     }
 
-    await _uploadsBox!.put(upload.id, upload);
-
+    try {
+      await _uploadsBox!.put(upload.id, upload);
+      Log.info('✅ Upload saved to Hive box',
+          name: 'UploadManager', category: LogCategory.video);
+    } catch (e) {
+      Log.error('❌ Failed to save upload to Hive: $e',
+          name: 'UploadManager', category: LogCategory.video);
+      rethrow;
+    }
   }
 
   /// Update existing upload
@@ -686,6 +776,28 @@ class UploadManager  {
 
     await _updateUpload(updatedUpload);
     Log.info('Updated upload status: $uploadId -> $status',
+        name: 'UploadManager', category: LogCategory.video);
+  }
+  
+  /// Update upload metadata (title, description, hashtags)
+  Future<void> updateUploadMetadata(String uploadId, {
+    String? title,
+    String? description, 
+    List<String>? hashtags,
+  }) async {
+    final upload = getUpload(uploadId);
+    if (upload == null) {
+      Log.warning('Upload not found for metadata update: $uploadId',
+          name: 'UploadManager', category: LogCategory.video);
+      return;
+    }
+    final updatedUpload = upload.copyWith(
+      title: title ?? upload.title,
+      description: description ?? upload.description,
+      hashtags: hashtags ?? upload.hashtags,
+    );
+    await _updateUpload(updatedUpload);
+    Log.info('Updated upload metadata: $uploadId',
         name: 'UploadManager', category: LogCategory.video);
   }
 

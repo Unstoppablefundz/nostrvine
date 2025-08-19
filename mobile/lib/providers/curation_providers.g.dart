@@ -81,7 +81,7 @@ final curationProvider =
 );
 
 typedef _$Curation = AutoDisposeNotifier<CurationState>;
-String _$analyticsTrendingHash() => r'33fdef5b2b5d2132b37636190d051e8420aefed1';
+String _$analyticsTrendingHash() => r'ed584f47ce26a44ff368d0f7d32e27faa80697a7';
 
 /// Provider for analytics-based trending videos
 ///
@@ -99,7 +99,7 @@ final analyticsTrendingProvider =
 );
 
 typedef _$AnalyticsTrending = AutoDisposeNotifier<List<VideoEvent>>;
-String _$analyticsPopularHash() => r'ced5475cd590efb845077badd27bb7b01a602ac3';
+String _$analyticsPopularHash() => r'fe3a80d2e416f3d7b0bf7be35d30cbcfe5512543';
 
 /// Provider for analytics-based popular videos
 ///
