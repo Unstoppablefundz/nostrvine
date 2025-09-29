@@ -2,16 +2,22 @@
 // ABOUTME: Handles event creation, signing, and relay broadcasting for direct uploads
 
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:nostr_sdk/event.dart';
 import 'package:openvine/models/pending_upload.dart';
+import 'package:openvine/models/video_event.dart';
 import 'package:openvine/services/auth_service.dart';
 import 'package:openvine/services/blurhash_service.dart';
 import 'package:openvine/services/nostr_service_interface.dart';
 import 'package:openvine/services/personal_event_cache_service.dart';
 import 'package:openvine/services/upload_manager.dart';
+import 'package:openvine/services/video_event_service.dart';
 import 'package:openvine/services/video_thumbnail_service.dart';
 import 'package:openvine/utils/unified_logger.dart';
+import 'package:openvine/constants/nip71_migration.dart';
 
 /// Service for publishing processed videos to Nostr relays
 /// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
@@ -21,14 +27,17 @@ class VideoEventPublisher {
     required INostrService nostrService,
     AuthService? authService,
     PersonalEventCacheService? personalEventCache,
+    VideoEventService? videoEventService,
   })  : _uploadManager = uploadManager,
         _nostrService = nostrService,
         _authService = authService,
-        _personalEventCache = personalEventCache;
+        _personalEventCache = personalEventCache,
+        _videoEventService = videoEventService;
   final UploadManager _uploadManager;
   final INostrService _nostrService;
   final AuthService? _authService;
   final PersonalEventCacheService? _personalEventCache;
+  final VideoEventService? _videoEventService;
 
   // Statistics
   int _totalEventsPublished = 0;
@@ -168,7 +177,7 @@ class VideoEventPublisher {
       Log.debug('Publishing direct upload: ${upload.videoId}',
           name: 'VideoEventPublisher', category: LogCategory.video);
 
-      // Create NIP-32222 compliant tags for the video
+      // Create NIP-71 compliant tags for the video
       final tags = <List<String>>[];
 
       // Generate unique identifier for the addressable event
@@ -182,10 +191,24 @@ class VideoEventPublisher {
       imetaComponents.add('url ${upload.cdnUrl!}');
       imetaComponents.add('m video/mp4');
 
-      // Add thumbnail to imeta if available
+      // Add thumbnail to imeta if available (must be a valid HTTP URL)
       if (upload.thumbnailPath != null && upload.thumbnailPath!.isNotEmpty) {
-        imetaComponents.add('image ${upload.thumbnailPath!}');
-        Log.verbose('Including thumbnail in imeta: ${upload.thumbnailPath}',
+        final thumbnailPath = upload.thumbnailPath!;
+        // Only include HTTP/HTTPS URLs, not local file paths
+        if (thumbnailPath.startsWith('http://') || thumbnailPath.startsWith('https://')) {
+          imetaComponents.add('image $thumbnailPath');
+          Log.info('✅ Including thumbnail in imeta: $thumbnailPath',
+              name: 'VideoEventPublisher', category: LogCategory.video);
+        } else {
+          Log.warning('❌ Skipping local thumbnail path (not a URL): $thumbnailPath',
+              name: 'VideoEventPublisher', category: LogCategory.video);
+          Log.warning('Backend may not be returning thumbnail_url field',
+              name: 'VideoEventPublisher', category: LogCategory.video);
+        }
+      } else {
+        Log.warning('❌ No thumbnail available - thumbnailPath is: ${upload.thumbnailPath}',
+            name: 'VideoEventPublisher', category: LogCategory.video);
+        Log.warning('Upload metadata - videoId: ${upload.videoId}, cdnUrl: ${upload.cdnUrl}',
             name: 'VideoEventPublisher', category: LogCategory.video);
       }
 
@@ -196,7 +219,7 @@ class VideoEventPublisher {
           final thumbnailBytes =
               await VideoThumbnailService.extractThumbnailBytes(
             videoPath: upload.localVideoPath,
-            timeMs: 500, // Same as used in DirectUploadService
+            timeMs: 500, // Extract thumbnail at 500ms
             quality: 80,
           );
 
@@ -220,6 +243,31 @@ class VideoEventPublisher {
       // Add dimensions to imeta if available
       if (upload.videoWidth != null && upload.videoHeight != null) {
         imetaComponents.add('dim ${upload.videoWidth}x${upload.videoHeight}');
+      }
+
+      // Add file size and SHA256 if available from local video file
+      if (upload.localVideoPath.isNotEmpty) {
+        try {
+          final videoFile = File(upload.localVideoPath);
+          if (videoFile.existsSync()) {
+            // Add file size
+            final fileSize = videoFile.lengthSync();
+            imetaComponents.add('size $fileSize');
+
+            // Calculate SHA256 hash
+            final bytes = await videoFile.readAsBytes();
+            final hash = sha256.convert(bytes);
+            imetaComponents.add('x $hash');
+
+            Log.verbose(
+                'Added file metadata - size: $fileSize bytes, hash: $hash',
+                name: 'VideoEventPublisher',
+                category: LogCategory.video);
+          }
+        } catch (e) {
+          Log.warning('Failed to calculate file metadata: $e',
+              name: 'VideoEventPublisher', category: LogCategory.video);
+        }
       }
 
       // Add the complete imeta tag
@@ -285,7 +333,7 @@ class VideoEventPublisher {
           name: 'VideoEventPublisher', category: LogCategory.video);
 
       final event = await _authService!.createAndSignEvent(
-        kind: 32222, // NIP-32222 addressable short looping video
+        kind: NIP71VideoKinds.getPreferredAddressableKind(), // NIP-71 addressable short video
         content: content,
         tags: tags,
       );
@@ -319,6 +367,19 @@ class VideoEventPublisher {
 
         _totalEventsPublished++;
         _lastPublishTime = DateTime.now();
+
+        // Add the published video to local cache immediately for instant UI updates
+        if (_videoEventService != null) {
+          try {
+            final videoEvent = VideoEvent.fromNostrEvent(event);
+            _videoEventService!.addVideoEvent(videoEvent);
+            Log.info('Added published video to discovery cache: ${event.id}',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+          } catch (e) {
+            Log.warning('Failed to add published video to cache: $e',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+          }
+        }
 
         Log.info('Successfully published direct upload: ${event.id}',
             name: 'VideoEventPublisher', category: LogCategory.video);

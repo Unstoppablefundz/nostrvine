@@ -10,7 +10,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:openvine/models/user_profile.dart' as profile_model;
-import 'package:openvine/services/direct_upload_service.dart';
 import 'package:openvine/services/nip05_service.dart';
 import 'package:openvine/utils/async_utils.dart';
 import 'package:openvine/utils/unified_logger.dart';
@@ -1397,19 +1396,22 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
     try {
       final authService = ref.read(authServiceProvider);
-      final nip98AuthService = ref.read(nip98AuthServiceProvider);
-      final uploadService = DirectUploadService(authService: nip98AuthService);
+      final uploadService = ref.read(blossomUploadServiceProvider);
 
       if (authService.currentPublicKeyHex == null) {
         throw Exception('No public key available');
       }
 
-      final result = await uploadService.uploadProfilePicture(
-        imageFile: _selectedImage!,
+      final result = await uploadService.uploadVideo(
+        videoFile: _selectedImage!,
         nostrPubkey: authService.currentPublicKeyHex!,
+        title: 'Profile Picture',
         onProgress: (progress) {
-          Log.debug('Upload progress: ${(progress * 100).toStringAsFixed(0)}%',
-              name: 'ProfileSetupScreen', category: LogCategory.ui);
+          // Only log at major milestones to reduce noise
+          if (progress == 1.0 || progress == 0.0) {
+            Log.debug('Upload ${progress == 1.0 ? "completed" : "started"}',
+                name: 'ProfileSetupScreen', category: LogCategory.ui);
+          }
         },
       );
 

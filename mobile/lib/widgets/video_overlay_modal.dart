@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/video_feed_item.dart';
 
@@ -30,7 +29,7 @@ class VideoOverlayModal extends ConsumerStatefulWidget {
 class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
   late PageController _pageController;
   late int _currentIndex;
-  VideoManager? _videoManager;
+  // VideoManager? _videoManager; // TODO: Restore when VideoManager is available
 
   @override
   void initState() {
@@ -72,7 +71,7 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
 
     // Initialize video manager
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeVideoManager();
+      // _initializeVideoManager(); // TODO: Restore when VideoManager is available
     });
   }
 
@@ -83,6 +82,8 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
     super.dispose();
   }
 
+  // TODO: Restore when VideoManager is available
+  /*
   Future<void> _initializeVideoManager() async {
     Log.debug(
         'VideoOverlayModal._initializeVideoManager: Starting initialization',
@@ -130,8 +131,11 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
           category: LogCategory.ui);
     }
   }
+  */ // End of commented _initializeVideoManager method
 
   void _pauseAllVideos() {
+    // TODO: Restore when VideoManager is available
+    /*
     if (_videoManager != null) {
       try {
         _videoManager!.pauseAllVideos();
@@ -140,6 +144,7 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
             name: 'VideoOverlayModal', category: LogCategory.ui);
       }
     }
+    */
   }
 
   Future<void> _onPageChanged(int index) async {
@@ -147,6 +152,8 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
       _currentIndex = index;
     });
 
+    // TODO: Restore when VideoManager is available
+    /*
     // Manage video playback for the new current video
     if (_videoManager != null && index < widget.videoList.length) {
       final newVideo = widget.videoList[index];
@@ -160,6 +167,7 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
       _videoManager!.addVideoEvent(newVideo);
       _videoManager!.preloadVideo(newVideo.id);
     }
+    */
   }
 
   @override
@@ -273,7 +281,7 @@ class _VideoOverlayModalState extends ConsumerState<VideoOverlayModal> {
                   height: double.infinity,
                   child: VideoFeedItem(
                     video: video,
-                    isActive: isActive,
+                    index: index,
                   ),
                 );
               },

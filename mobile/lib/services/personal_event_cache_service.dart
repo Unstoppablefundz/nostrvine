@@ -26,7 +26,7 @@ class PersonalEventCacheService {
     try {
       _currentUserPubkey = userPubkey;
 
-      // Open the events box
+      // Try to open the events box
       _eventsBox = await Hive.openBox<Map<String, dynamic>>(_boxName);
 
       // Open the metadata box for indexing
@@ -44,7 +44,28 @@ class PersonalEventCacheService {
     } catch (e) {
       Log.error('Failed to initialize PersonalEventCacheService: $e',
           name: 'PersonalEventCache', category: LogCategory.storage);
-      rethrow;
+
+      // Try to recover by deleting corrupted boxes
+      try {
+        Log.warning('Attempting to recover from corrupted cache by deleting boxes',
+            name: 'PersonalEventCache', category: LogCategory.storage);
+
+        await Hive.deleteBoxFromDisk(_boxName);
+        await Hive.deleteBoxFromDisk(_metadataBoxName);
+
+        // Retry opening after deletion
+        _eventsBox = await Hive.openBox<Map<String, dynamic>>(_boxName);
+        _metadataBox = await Hive.openBox<Map<String, dynamic>>(_metadataBoxName);
+
+        _isInitialized = true;
+
+        Log.info('Successfully recovered PersonalEventCacheService after corruption',
+            name: 'PersonalEventCache', category: LogCategory.storage);
+      } catch (recoveryError) {
+        Log.error('Failed to recover from corrupted cache: $recoveryError',
+            name: 'PersonalEventCache', category: LogCategory.storage);
+        rethrow;
+      }
     }
   }
 

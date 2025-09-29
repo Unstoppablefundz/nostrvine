@@ -24,7 +24,6 @@ class AppConfig {
   static String get nip96InfoUrl =>
       '$backendBaseUrl/.well-known/nostr/nip96.json';
 
-  // Stream CDN endpoints (new Cloudflare Stream integration)
   static String get streamUploadRequestUrl =>
       '$backendBaseUrl/v1/media/request-upload';
   static String streamStatusUrl(String videoId) =>
@@ -41,6 +40,7 @@ class AppConfig {
   // App configuration
   static const String appName = 'divine';
   static const String appVersion = '1.0.0';
+
 
   // External relay configuration DELETED - using embedded relay only
 

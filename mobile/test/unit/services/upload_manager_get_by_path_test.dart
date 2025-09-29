@@ -6,11 +6,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:openvine/services/direct_upload_service.dart';
+import 'package:openvine/services/blossom_upload_service.dart';
 import 'package:openvine/services/upload_manager.dart';
 import '../../helpers/real_integration_test_helper.dart';
 
-class MockDirectUploadService extends Mock implements DirectUploadService {}
+class MockBlossomUploadService extends Mock implements BlossomUploadService {}
 
 class MockFile extends Mock implements File {}
 
@@ -18,7 +18,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late UploadManager uploadManager;
-  late MockDirectUploadService mockUploadService;
+  late MockBlossomUploadService mockUploadService;
 
   setUpAll(() async {
     // Setup test environment with platform channel mocks
@@ -39,8 +39,8 @@ void main() {
       // Box might not exist, that's fine
     }
 
-    mockUploadService = MockDirectUploadService();
-    uploadManager = UploadManager(uploadService: mockUploadService);
+    mockUploadService = MockBlossomUploadService();
+    uploadManager = UploadManager(blossomService: mockUploadService);
 
     // Initialize the upload manager (this will open the Hive box)
     await uploadManager.initialize();

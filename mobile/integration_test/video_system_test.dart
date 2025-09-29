@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/screens/video_feed_screen.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
+import 'package:openvine/providers/video_events_providers.dart';
 import 'package:openvine/providers/video_feed_provider.dart';
 
 void main() {
@@ -33,7 +33,7 @@ void main() {
       final container = ProviderScope.containerOf(context);
 
       // Verify that providers can be accessed
-      expect(() => container.read(videoManagerProvider), returnsNormally);
+      expect(() => container.read(videoEventsProvider), returnsNormally);
       expect(() => container.read(videoFeedProvider), returnsNormally);
     });
 
@@ -69,12 +69,12 @@ void main() {
 
       // Test that providers don't throw when accessed
       expect(
-          () => container.read(videoManagerProvider.notifier), returnsNormally);
+          () => container.read(videoEventsProvider.notifier), returnsNormally);
       expect(() => container.read(videoFeedProvider.notifier), returnsNormally);
 
       // Verify providers have correct initial state
-      final videoManager = container.read(videoManagerProvider);
-      expect(videoManager, isNotNull);
+      final videoEvents = container.read(videoEventsProvider);
+      expect(videoEvents, isA<AsyncValue>());
     });
   });
 }

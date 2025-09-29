@@ -5,7 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:openvine/models/vine_draft.dart';
-import 'package:openvine/screens/vine_preview_screen.dart';
+import 'package:openvine/screens/pure/vine_preview_screen_pure.dart';
 import 'package:openvine/theme/vine_theme.dart';
 
 class VineDraftsScreen extends StatefulWidget {
@@ -280,7 +280,7 @@ class _VineDraftsScreenState extends State<VineDraftsScreen> {
   void _editDraft(VineDraft draft) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => VinePreviewScreen(
+        builder: (context) => VinePreviewScreenPure(
           videoFile: draft.videoFile,
           frameCount: draft.frameCount,
           selectedApproach: draft.selectedApproach,

@@ -49,17 +49,28 @@ class VideoEvents extends _$VideoEvents {
       category: LogCategory.video,
     );
 
-    // Only subscribe when Explore tab is active
+    // Subscribe only when Explore tab is active to avoid startup thrash
     if (!isExploreActive) {
       Log.debug('VideoEvents: Explore tab inactive; not subscribing',
           name: 'VideoEventsProvider', category: LogCategory.video);
-      // Return an empty broadcast stream to satisfy listeners without background work
-      final controller = StreamController<List<VideoEvent>>.broadcast();
-      ref.onDispose(() => controller.close());
-      return controller.stream;
+      _controller = StreamController<List<VideoEvent>>.broadcast();
+      // Emit whatever is cached so grids can show something if needed
+      final cached = List<VideoEvent>.from(videoEventService.discoveryVideos);
+      scheduleMicrotask(() {
+        if (_canEmit) _controller!.add(cached);
+      });
+
+      ref.onDispose(() {
+        _debounceTimer?.cancel();
+        _controller?.close();
+        _controller = null;
+      });
+      return _controller!.stream;
     }
 
-    // Subscribe to discovery videos for Explore screen (active)
+    Log.debug('VideoEvents: Explore active, subscribing to discovery videos',
+        name: 'VideoEventsProvider', category: LogCategory.video);
+
     videoEventService.subscribeToDiscovery(limit: 100);
 
     // Create a new stream controller
@@ -86,7 +97,7 @@ class VideoEvents extends _$VideoEvents {
       // Create a new debounce timer to batch updates
       _debounceTimer = Timer(const Duration(milliseconds: 500), () {
         if (_pendingEvents != null && _canEmit) {
-          Log.info(
+          Log.debug(
             '📺 VideoEvents: Batched update - ${_pendingEvents!.length} discovery videos',
             name: 'VideoEventsProvider',
             category: LogCategory.video,

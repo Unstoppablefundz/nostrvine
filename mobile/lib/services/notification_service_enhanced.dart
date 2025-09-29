@@ -445,9 +445,24 @@ class NotificationServiceEnhanced {
 
     try {
       final cached = _notificationBox!.values.toList();
+      int loadedCount = 0;
+      int corruptedCount = 0;
+
       for (final data in cached) {
-        final notification = NotificationModel.fromJson(data);
-        _notifications.add(notification);
+        try {
+          // Ensure proper Map<String, dynamic> type casting
+          // Note: Despite Hive typing, corruption can cause unexpected types
+          final jsonData = Map<String, dynamic>.from(data as Map);
+
+          final notification = NotificationModel.fromJson(jsonData);
+          _notifications.add(notification);
+          loadedCount++;
+        } catch (e) {
+          // Log corrupted notification and continue with others
+          Log.warning('Skipping corrupted notification: $e',
+              name: 'NotificationServiceEnhanced', category: LogCategory.system);
+          corruptedCount++;
+        }
       }
 
       // Sort by timestamp (newest first)
@@ -456,10 +471,33 @@ class NotificationServiceEnhanced {
       // Update unread count
       _updateUnreadCount();
 
-      Log.debug('📱 Loaded ${_notifications.length} cached notifications',
+      Log.debug('📱 Loaded $loadedCount cached notifications${corruptedCount > 0 ? " ($corruptedCount corrupted entries skipped)" : ""}',
           name: 'NotificationServiceEnhanced', category: LogCategory.system);
+
+      // If many notifications are corrupted, clear the cache
+      if (corruptedCount > loadedCount && corruptedCount > 10) {
+        Log.warning('Too many corrupted notifications ($corruptedCount), clearing cache',
+            name: 'NotificationServiceEnhanced', category: LogCategory.system);
+        await _clearCorruptedCache();
+      }
     } catch (e) {
       Log.error('Failed to load cached notifications: $e',
+          name: 'NotificationServiceEnhanced', category: LogCategory.system);
+      // Try to clear corrupted cache and continue
+      await _clearCorruptedCache();
+    }
+  }
+
+  /// Clear corrupted cache data
+  Future<void> _clearCorruptedCache() async {
+    try {
+      await _notificationBox?.clear();
+      _notifications.clear();
+      _updateUnreadCount();
+      Log.info('Cleared corrupted notification cache',
+          name: 'NotificationServiceEnhanced', category: LogCategory.system);
+    } catch (e) {
+      Log.error('Failed to clear corrupted cache: $e',
           name: 'NotificationServiceEnhanced', category: LogCategory.system);
     }
   }

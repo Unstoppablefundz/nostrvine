@@ -147,14 +147,23 @@ class _BlurhashDisplayState extends State<BlurhashDisplay> {
   Future<ui.Image?> _createImageFromPixels(
       Uint8List pixels, int width, int height) async {
     try {
-      final completer = Completer<ui.Image>();
+      // Validate input data first
+      if (pixels.isEmpty || width <= 0 || height <= 0) {
+        Log.warning('Invalid image data: pixels=${pixels.length}, w=$width, h=$height',
+            name: 'BlurhashDisplay', category: LogCategory.ui);
+        return null;
+      }
+
+      final completer = Completer<ui.Image?>();
       ui.decodeImageFromPixels(
         pixels,
         width,
         height,
         ui.PixelFormat.rgba8888,
         (ui.Image image) {
-          completer.complete(image);
+          if (!completer.isCompleted) {
+            completer.complete(image);
+          }
         },
       );
       return await completer.future;

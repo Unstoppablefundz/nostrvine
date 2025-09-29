@@ -34,7 +34,8 @@ class HomeFeed extends _$HomeFeed {
       _profileFetchTimer?.cancel();
     });
 
-    // Get social data to check following list
+    // Wait for social data to be ready before proceeding
+    // This prevents unnecessary rebuilds during app startup
     final socialData = ref.watch(social.socialNotifierProvider);
     final followingPubkeys = socialData.followingPubkeys;
 

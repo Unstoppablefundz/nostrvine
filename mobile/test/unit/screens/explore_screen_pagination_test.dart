@@ -1,9 +1,7 @@
 // ABOUTME: Unit tests for explore screen automatic pagination functionality
 // ABOUTME: Tests scroll detection, rate limiting, and provider integration
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/models/video_event.dart';
 
 void main() {

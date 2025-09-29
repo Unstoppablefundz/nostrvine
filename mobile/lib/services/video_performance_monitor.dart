@@ -1,18 +1,20 @@
 // ABOUTME: Performance monitoring service for video system analytics and alerting
 // ABOUTME: Tracks memory usage, preload success rates, and error patterns for production optimization
 
-import 'dart:async';
-import 'dart:math';
-import 'package:openvine/services/video_manager_interface.dart';
-import 'package:openvine/utils/unified_logger.dart';
+// import 'dart:async'; // TODO: Restore when VideoPerformanceMonitor class is enabled
+// import 'dart:math'; // TODO: Restore when VideoPerformanceMonitor class is enabled
+// import 'package:openvine/services/video_manager_interface.dart'; // TODO: Restore when IVideoManager interface is available
+// import 'package:openvine/utils/unified_logger.dart'; // TODO: Restore when VideoPerformanceMonitor class is enabled
 
-/// Performance monitoring service for video system
-///
-/// This service provides comprehensive monitoring of video system performance,
-/// including memory usage, preload success rates, error patterns, and user
-/// engagement metrics. It supports real-time analytics and alerting for
-/// production deployments.
-/// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
+// Performance monitoring service for video system
+//
+// This service provides comprehensive monitoring of video system performance,
+// including memory usage, preload success rates, error patterns, and user
+// engagement metrics. It supports real-time analytics and alerting for
+// production deployments.
+// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
+// TODO: Temporarily disabled - needs refactoring for new Riverpod architecture without IVideoManager
+/*
 class VideoPerformanceMonitor {
   VideoPerformanceMonitor({
     required IVideoManager videoManager,
@@ -614,6 +616,7 @@ class VideoPerformanceMonitor {
     return buckets;
   }
 }
+*/ // End of commented VideoPerformanceMonitor class
 
 // Data classes for performance monitoring
 

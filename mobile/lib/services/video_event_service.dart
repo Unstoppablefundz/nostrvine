@@ -1,4 +1,4 @@
-// ABOUTME: Service for subscribing to and managing video events (kind 32222)
+// ABOUTME: Service for subscribing to and managing video events (NIP-71 kinds 22, 34236)
 // ABOUTME: Handles real-time feed updates and local caching of video content
 
 import 'dart:async';
@@ -15,7 +15,7 @@ import 'package:openvine/services/nostr_service_interface.dart';
 import 'package:openvine/services/subscription_manager.dart';
 import 'package:openvine/services/user_profile_service.dart';
 import 'package:openvine/utils/unified_logger.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
+import 'package:openvine/constants/nip71_migration.dart';
 
 /// Pagination state for tracking cursor position and loading status per subscription
 class PaginationState {
@@ -85,21 +85,18 @@ enum SubscriptionType {
   search, // Search results
 }
 
-/// Service for handling video events (kind 32222 NIP-32222) with separate lists per subscription type
+/// Service for handling video events (NIP-71 kinds 22, 34236) with separate lists per subscription type
 /// REFACTORED: Multiple event lists per subscription type with proper REQ filtering
 class VideoEventService extends ChangeNotifier {
   VideoEventService(
     this._nostrService, {
     required SubscriptionManager subscriptionManager,
-    VideoManager? videoManager,
     UserProfileService? userProfileService,
   })  : _subscriptionManager = subscriptionManager,
-        _videoManager = videoManager,
         _userProfileService = userProfileService {
     _initializePaginationStates();
   }
   final INostrService _nostrService;
-  final VideoManager? _videoManager;
   final UserProfileService? _userProfileService;
   final ConnectionStatusService _connectionService = ConnectionStatusService();
 
@@ -233,7 +230,7 @@ class VideoEventService extends ChangeNotifier {
     return result;
   }
 
-  /// Subscribe to kind 32222 video events with proper subscription type separation
+  /// Subscribe to NIP-71 video events with proper subscription type separation
   Future<void> subscribeToVideoFeed({
     required SubscriptionType subscriptionType,
     List<String>? authors,
@@ -307,7 +304,7 @@ class VideoEventService extends ChangeNotifier {
 
     try {
       Log.info(
-          '🎬 Creating $subscriptionType filter for kind 32222 video events...',
+          '🎬 Creating $subscriptionType filter for NIP-71 video events...',
           name: 'VideoEventService',
           category: LogCategory.video);
       Log.info('  - Subscription Type: $subscriptionType',
@@ -335,7 +332,7 @@ class VideoEventService extends ChangeNotifier {
       Log.info('  - Include reposts: $includeReposts',
           name: 'VideoEventService', category: LogCategory.video);
 
-      // Create filter for kind 32222 events
+      // Create filter for NIP-71 video events
       // No artificial date constraints - let relays return their best content
       final effectiveSince = since;
       final effectiveUntil = until;
@@ -350,13 +347,13 @@ class VideoEventService extends ChangeNotifier {
         // Let relays decide what content to return - they know their data best
       }
 
-      // Create optimized filter for Kind 32222 video events
+      // Create optimized filter for NIP-71 video events
       // IMPORTANT: Convert hashtags to lowercase per NIP-24 requirement
       final lowercaseHashtags =
           hashtags?.map((tag) => tag.toLowerCase()).toList();
 
       final videoFilter = Filter(
-        kinds: [32222], // NIP-32222 addressable short video events
+        kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events
         authors: authors,
         since: effectiveSince,
         until: effectiveUntil,
@@ -579,12 +576,12 @@ class VideoEventService extends ChangeNotifier {
         paginationState.markEventSeen(event.id);
       }
 
-      Log.info(
+      Log.debug(
           '📥 Received $subscriptionType event: kind=${event.kind}, author=${event.pubkey.substring(0, 8)}..., id=${event.id.substring(0, 8)}...',
           name: 'VideoEventService',
           category: LogCategory.video);
 
-      if (event.kind != 32222 && event.kind != 6) {
+      if (!NIP71VideoKinds.isVideoKind(event.kind) && event.kind != 6) {
         Log.warning('⏩ Skipping non-video/repost event (kind ${event.kind})',
             name: 'VideoEventService', category: LogCategory.video);
         return;
@@ -617,10 +614,10 @@ class VideoEventService extends ChangeNotifier {
       }
 
       // Handle different event kinds
-      if (event.kind == 32222) {
+      if (NIP71VideoKinds.isVideoKind(event.kind)) {
         // Direct video event
-        Log.info(
-            '📥 Received Kind 32222 event from relay: ${event.id.substring(0, 8)}... (subscription: $subscriptionType)',
+        Log.debug(
+            '📥 Received NIP-71 video event from relay: ${event.id.substring(0, 8)}... (subscription: $subscriptionType)',
             name: 'VideoEventService',
             category: LogCategory.video);
 
@@ -856,12 +853,12 @@ class VideoEventService extends ChangeNotifier {
         paginationState.markEventSeen(event.id);
       }
 
-      Log.info(
+      Log.debug(
           '📥 Received historical $subscriptionType event: kind=${event.kind}, author=${event.pubkey.substring(0, 8)}..., id=${event.id.substring(0, 8)}...',
           name: 'VideoEventService',
           category: LogCategory.video);
 
-      if (event.kind != 32222 && event.kind != 6) {
+      if (!NIP71VideoKinds.isVideoKind(event.kind) && event.kind != 6) {
         Log.warning(
             '⏩ Skipping non-video/repost historical event (kind ${event.kind})',
             name: 'VideoEventService',
@@ -896,7 +893,7 @@ class VideoEventService extends ChangeNotifier {
       }
 
       // Handle different event kinds (same logic as real-time events)
-      if (event.kind == 32222) {
+      if (NIP71VideoKinds.isVideoKind(event.kind)) {
         // Direct video event
         Log.verbose(
             'Processing historical video event ${event.id.substring(0, 8)}...',
@@ -1278,7 +1275,7 @@ class VideoEventService extends ChangeNotifier {
 
     // Create filter without restrictive date constraints
     final filter = Filter(
-      kinds: [32222], // NIP-32222 addressable video events
+      kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events + legacy support
       authors: authors, // Use same authors as main subscription if available
       until: until, // Only use 'until' if we have existing events
       limit: limit,
@@ -1317,7 +1314,7 @@ class VideoEventService extends ChangeNotifier {
       streamSubscription = eventStream.listen(
         (event) {
           // Handle video events immediately as they arrive
-          if (event.kind == 32222) {
+          if (NIP71VideoKinds.isVideoKind(event.kind)) {
             receivedCount++;
             _handleHistoricalVideoEvent(event, subscriptionType);
 
@@ -1404,7 +1401,7 @@ class VideoEventService extends ChangeNotifier {
 
       // Create a broader query without date restrictions
       final filter = Filter(
-        kinds: [32222], // NIP-32222 addressable video events
+        kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events
         limit: limit,
         // No date filters - let relays return their best content
       );
@@ -1497,7 +1494,7 @@ class VideoEventService extends ChangeNotifier {
 
     // Filter by the 'd' tag for addressable events
     final filter = Filter(
-      kinds: [32222],
+      kinds: NIP71VideoKinds.getAllVideoKinds(),
       d: [vineId], // Filter by the specific d tag value
       limit: 10, // Should only need one, but fetch a few in case
     );
@@ -1727,7 +1724,7 @@ class VideoEventService extends ChangeNotifier {
               name: 'VideoEventService', category: LogCategory.video);
 
           // Check if it's a valid video event
-          if (originalEvent.kind == 32222) {
+          if (NIP71VideoKinds.isVideoKind(originalEvent.kind)) {
             try {
               final originalVideoEvent =
                   VideoEvent.fromNostrEvent(originalEvent);
@@ -1929,8 +1926,9 @@ class VideoEventService extends ChangeNotifier {
     // Check for presence of 'k' tag indicating original event kind
     for (final tag in repostEvent.tags) {
       if (tag.isNotEmpty && tag[0] == 'k' && tag.length > 1) {
-        // If the repost explicitly indicates it's reposting a kind 32222 event
-        if (tag[1] == '32222') {
+        // If the repost explicitly indicates it's reposting a video event
+        final referencedKind = int.tryParse(tag[1]);
+        if (referencedKind != null && NIP71VideoKinds.isVideoKind(referencedKind)) {
           return true;
         }
       }
@@ -2064,8 +2062,7 @@ class VideoEventService extends ChangeNotifier {
       }
     }
 
-    // Add video to VideoManager if available - this resolves the VideoManagerException
-    _videoManager?.addVideoEvent(videoEvent);
+    // VideoManager integration removed - using pure Riverpod architecture
 
     Log.verbose(
         'Added $subscriptionType video: ${videoEvent.title ?? videoEvent.id.substring(0, 8)} (total: ${eventList.length})',

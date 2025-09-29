@@ -39,7 +39,7 @@ cd ..
 echo "🚀 Building macOS app..."
 if [ "$1" = "release" ]; then
     echo "🏗️  Building Flutter macOS release..."
-    flutter build macos --release
+    flutter build macos --release 
     
     echo "📦 Creating Xcode archive..."
     cd macos
@@ -119,13 +119,13 @@ EOF
     
     cd ..
 elif [ "$1" = "debug" ]; then
-    flutter build macos --debug
+    flutter build macos --debug 
 else
     echo "Usage: $0 [debug|release]"
     echo "  debug   - Build debug version"
     echo "  release - Build release version and create Xcode archive"
     echo "Building in debug mode by default..."
-    flutter build macos --debug
+    flutter build macos --debug 
 fi
 
 echo "✅ macOS build complete!"

@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
+// import 'package:openvine/providers/video_manager_providers.dart'; // TODO: Restore when VideoManager providers are available
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/video_feed_item.dart';
 
@@ -79,7 +79,7 @@ class _VideoOverlayModalCompactState
 
     // Initialize video manager
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeVideoManager();
+      // _initializeVideoManager(); // TODO: Restore when VideoManager is available
     });
   }
 
@@ -87,10 +87,12 @@ class _VideoOverlayModalCompactState
   void dispose() {
     _pageController.dispose();
     _slideController.dispose();
-    _pauseAllVideos();
+    // _pauseAllVideos(); // TODO: Restore when VideoManager is available
     super.dispose();
   }
 
+  // TODO: Restore when VideoManager is available
+  /*
   Future<void> _initializeVideoManager() async {
     try {
       final videoManager = ref.read(videoManagerProvider.notifier);
@@ -112,7 +114,10 @@ class _VideoOverlayModalCompactState
           category: LogCategory.ui);
     }
   }
+  */
 
+  // TODO: Restore when VideoManager is available
+  /*
   void _pauseAllVideos() {
     try {
       final videoManager = ref.read(videoManagerProvider.notifier);
@@ -122,12 +127,15 @@ class _VideoOverlayModalCompactState
           name: 'VideoOverlayModalCompact', category: LogCategory.ui);
     }
   }
+  */
 
   Future<void> _onPageChanged(int index) async {
     setState(() {
       _currentIndex = index;
     });
 
+    // TODO: Restore when VideoManager is available
+    /*
     if (index < widget.videoList.length) {
       try {
         final videoManager = ref.read(videoManagerProvider.notifier);
@@ -139,6 +147,7 @@ class _VideoOverlayModalCompactState
             name: 'VideoOverlayModalCompact', category: LogCategory.ui);
       }
     }
+    */
   }
 
   void _dismiss() {
@@ -304,7 +313,6 @@ class _VideoOverlayModalCompactState
         itemCount: widget.videoList.length,
         itemBuilder: (context, index) {
           final video = widget.videoList[index];
-          final isActive = index == _currentIndex;
 
           return ClipRRect(
             borderRadius: const BorderRadius.only(
@@ -313,7 +321,7 @@ class _VideoOverlayModalCompactState
             ),
             child: VideoFeedItem(
               video: video,
-              isActive: isActive,
+              index: index,
             ),
           );
         },

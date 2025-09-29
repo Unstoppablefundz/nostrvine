@@ -23,7 +23,8 @@ flutter pub run build_runner build --delete-conflicting-outputs || true
 echo "🏗️ Building iOS release..."
 flutter build ipa --release \
   --dart-define=ENVIRONMENT=testflight \
-  --dart-define=ENABLE_CRASHLYTICS=true
+  --dart-define=ENABLE_CRASHLYTICS=true \
+  
 
 echo "✅ Build complete!"
 echo ""

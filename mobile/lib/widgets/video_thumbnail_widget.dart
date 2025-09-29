@@ -7,7 +7,6 @@ import 'package:openvine/services/thumbnail_api_service.dart'
     show ThumbnailSize;
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/blurhash_display.dart';
-import 'package:openvine/widgets/video_frame_thumbnail.dart';
 import 'package:openvine/widgets/video_icon_placeholder.dart';
 
 /// Smart thumbnail widget that displays thumbnails with blurhash fallback
@@ -139,56 +138,16 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
               height: widget.height,
               fit: widget.fit,
             ),
-          // Actual thumbnail image
-          Image.network(
-            _thumbnailUrl!,
+          // Actual thumbnail image with error boundary
+          _SafeNetworkImage(
+            url: _thumbnailUrl!,
             width: widget.width,
             height: widget.height,
             fit: widget.fit,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) {
-                return child; // Image loaded
-              }
-              // While loading, show blurhash or placeholder
-              if (widget.video.blurhash != null) {
-                return BlurhashDisplay(
-                  blurhash: widget.video.blurhash!,
-                  width: widget.width,
-                  height: widget.height,
-                  fit: widget.fit,
-                );
-              }
-              return VideoIconPlaceholder(
-                width: widget.width,
-                height: widget.height,
-                showLoading: true,
-                showPlayIcon: widget.showPlayIcon,
-                borderRadius: widget.borderRadius?.topLeft.x ?? 8.0,
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              Log.error('Failed to load thumbnail: $_thumbnailUrl',
-                  name: 'VideoThumbnailWidget', category: LogCategory.video);
-              Log.error(
-                  '🐛 THUMBNAIL ERROR for ${widget.video.id.substring(0, 8)}: blurhash="${widget.video.blurhash}"',
-                  name: 'VideoThumbnailWidget',
-                  category: LogCategory.video);
-              // On error, show blurhash or placeholder
-              if (widget.video.blurhash != null) {
-                return BlurhashDisplay(
-                  blurhash: widget.video.blurhash!,
-                  width: widget.width,
-                  height: widget.height,
-                  fit: widget.fit,
-                );
-              }
-              return VideoIconPlaceholder(
-                width: widget.width,
-                height: widget.height,
-                showPlayIcon: widget.showPlayIcon,
-                borderRadius: widget.borderRadius?.topLeft.x ?? 8.0,
-              );
-            },
+            videoId: widget.video.id,
+            blurhash: widget.video.blurhash,
+            showPlayIcon: widget.showPlayIcon,
+            borderRadius: widget.borderRadius,
           ),
           // Play icon overlay if requested
           if (widget.showPlayIcon)
@@ -247,40 +206,13 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
       );
     }
 
-    // Try to use video first frame as fallback
+    // Avoid spinning video controllers for thumbnails; fall back to icon
     if (widget.video.videoUrl != null && widget.video.videoUrl!.isNotEmpty) {
-      Log.debug(
-        '🖼️ No blurhash available - using video first frame',
-        name: 'VideoThumbnailWidget',
-        category: LogCategory.ui,
-      );
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          VideoFrameThumbnail(
-            videoUrl: widget.video.videoUrl!,
-            width: widget.width,
-            height: widget.height,
-            fit: widget.fit,
-            borderRadius: widget.borderRadius,
-          ),
-          if (widget.showPlayIcon)
-            Center(
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 32,
-                ),
-              ),
-            ),
-        ],
+      return VideoIconPlaceholder(
+        width: widget.width,
+        height: widget.height,
+        showPlayIcon: widget.showPlayIcon,
+        borderRadius: widget.borderRadius?.topLeft.x ?? 8.0,
       );
     }
     
@@ -310,5 +242,80 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
     }
 
     return content;
+  }
+}
+
+/// Error-safe network image widget that prevents 'Invalid image data' exceptions
+class _SafeNetworkImage extends StatelessWidget {
+  const _SafeNetworkImage({
+    required this.url,
+    required this.videoId,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.blurhash,
+    this.showPlayIcon = false,
+    this.borderRadius,
+  });
+
+  final String url;
+  final String videoId;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final String? blurhash;
+  final bool showPlayIcon;
+  final BorderRadius? borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      url,
+      width: width,
+      height: height,
+      fit: fit,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) {
+          return child; // Image loaded successfully
+        }
+        // While loading, show blurhash or placeholder
+        return _buildFallback();
+      },
+      errorBuilder: (context, error, stackTrace) {
+        // Log the specific error for debugging
+        Log.error('Network image failed: $url',
+            name: 'VideoThumbnailWidget', category: LogCategory.video);
+        Log.error('Error type: ${error.runtimeType}, Details: $error',
+            name: 'VideoThumbnailWidget', category: LogCategory.video);
+
+        // Check if this is specifically the 'Invalid image data' error
+        if (error.toString().contains('Invalid image data') ||
+            error.toString().contains('Image codec failed')) {
+          Log.warning('🖼️ Invalid image data detected for video ${videoId.substring(0, 8)}, URL: $url',
+              name: 'VideoThumbnailWidget', category: LogCategory.video);
+        }
+
+        return _buildFallback();
+      },
+    );
+  }
+
+  Widget _buildFallback() {
+    // Try to use blurhash first
+    if (blurhash != null && blurhash!.isNotEmpty) {
+      return BlurhashDisplay(
+        blurhash: blurhash!,
+        width: width,
+        height: height,
+        fit: fit,
+      );
+    }
+    // Fall back to icon placeholder
+    return VideoIconPlaceholder(
+      width: width,
+      height: height,
+      showPlayIcon: showPlayIcon,
+      borderRadius: borderRadius?.topLeft.x ?? 8.0,
+    );
   }
 }

@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvine/services/direct_upload_service.dart';
+import 'package:openvine/services/blossom_upload_service.dart';
 import 'package:openvine/services/video_thumbnail_service.dart';
 import 'package:openvine/utils/unified_logger.dart';
 
@@ -88,28 +88,18 @@ void main() {
         // Test 3: Test upload result structure
         Log.debug('\n🧪 Test 3: Testing upload result structure...');
 
-        final uploadResult = DirectUploadResult.success(
+        final uploadResult = BlossomUploadResult(
+          success: true,
           videoId: 'manual_test_video_123',
           cdnUrl: 'https://cdn.example.com/manual_test_video_123.mp4',
-          thumbnailUrl: 'https://cdn.example.com/manual_test_thumbnail_123.jpg',
-          metadata: {
-            'size': await testVideoFile.length(),
-            'type': 'video/mp4',
-            'has_thumbnail': thumbnailBytes != null,
-            'thumbnail_size': thumbnailBytes?.length ?? 0,
-          },
         );
 
         expect(uploadResult.success, isTrue);
         expect(uploadResult.videoId, equals('manual_test_video_123'));
         expect(uploadResult.cdnUrl, contains('.mp4'));
-        expect(uploadResult.thumbnailUrl, contains('thumbnail'));
-        expect(uploadResult.metadata?['has_thumbnail'], isNotNull);
 
         Log.debug('✅ Upload result structure is correct');
         Log.debug('🎬 Video URL: ${uploadResult.cdnUrl}');
-        Log.debug('🖼️ Thumbnail URL: ${uploadResult.thumbnailUrl}');
-        Log.debug('📊 Metadata: ${uploadResult.metadata}');
 
         // Test 4: Verify NIP-71 event structure
         Log.debug('\n🧪 Test 4: Verifying NIP-71 event tags...');
@@ -117,8 +107,6 @@ void main() {
         final expectedTags = [
           ['url', uploadResult.cdnUrl!],
           ['m', 'video/mp4'],
-          if (uploadResult.thumbnailUrl != null)
-            ['thumb', uploadResult.thumbnailUrl!],
           ['title', 'Manual Test Video'],
           ['summary', 'Testing thumbnail generation manually'],
           ['client', 'nostrvine'],

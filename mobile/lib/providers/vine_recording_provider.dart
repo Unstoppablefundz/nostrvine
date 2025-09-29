@@ -24,6 +24,13 @@ class VineRecordingUIState {
   final bool canRecord;
   final List<RecordingSegment> segments;
 
+  // Convenience getters used by UI
+  bool get isRecording => recordingState == VineRecordingState.recording;
+  bool get isInitialized => recordingState != VineRecordingState.processing && recordingState != VineRecordingState.error;
+  bool get isError => recordingState == VineRecordingState.error;
+  Duration get recordingDuration => totalRecordedDuration;
+  String? get errorMessage => isError ? 'Recording error occurred' : null;
+
   VineRecordingUIState copyWith({
     VineRecordingState? recordingState,
     double? progress,
@@ -86,15 +93,22 @@ class VineRecordingNotifier extends StateNotifier<VineRecordingUIState> {
     updateState();
   }
 
-  Future<void> stopRecording() async {
+  Future<File?> stopRecording() async {
     await _controller.stopRecording();
+    final result = await _controller.finishRecording();
     updateState();
+    return result;
   }
 
   Future<File?> finishRecording() async {
     final result = await _controller.finishRecording();
     updateState();
     return result;
+  }
+
+  Future<void> switchCamera() async {
+    await _controller.switchCamera();
+    updateState();
   }
 
   void reset() {

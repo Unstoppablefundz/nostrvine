@@ -5,8 +5,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_embedded_nostr_relay/flutter_embedded_nostr_relay.dart'
     as embedded;
+import 'package:logging/logging.dart' as logging;
 import 'package:nostr_sdk/event.dart';
 import 'package:nostr_sdk/filter.dart' as nostr;
 import 'package:openvine/models/nip94_metadata.dart';
@@ -66,35 +68,40 @@ class NostrService implements INostrService {
     }
 
     try {
-      // Initialize embedded relay (use injected instance if provided)
-      _embeddedRelay ??= embedded.EmbeddedNostrRelay();
-
-      Log.info('Initializing embedded relay...',
-          name: 'NostrService', category: LogCategory.relay);
-      CrashReportingService.instance.logInitializationStep('Creating embedded relay instance');
-
-      bool embeddedRelayFailed = false;
-      try {
-        CrashReportingService.instance.logInitializationStep('Starting embedded relay initialization');
-        await _embeddedRelay!.initialize(
-          enableGarbageCollection: true,
-        );
-        Log.info('Embedded relay initialized successfully',
+      // Skip embedded relay initialization on web platform
+      if (kIsWeb) {
+        Log.info('Skipping embedded relay initialization on web platform',
             name: 'NostrService', category: LogCategory.relay);
-        CrashReportingService.instance.logInitializationStep('Embedded relay initialized successfully');
-      } catch (e) {
+        CrashReportingService.instance.logInitializationStep('Skipped embedded relay on web');
+      } else {
+        // Initialize embedded relay (use injected instance if provided)
+        _embeddedRelay ??= embedded.EmbeddedNostrRelay();
+
+        Log.info('Initializing embedded relay...',
+            name: 'NostrService', category: LogCategory.relay);
+        CrashReportingService.instance.logInitializationStep('Creating embedded relay instance');
+
+        try {
+          CrashReportingService.instance.logInitializationStep('Starting embedded relay initialization');
+          await _embeddedRelay!.initialize(
+            logLevel: logging.Level.WARNING, // Reduce logging spam - only warnings and errors
+            enableGarbageCollection: true,
+          );
+          Log.info('Embedded relay initialized successfully',
+              name: 'NostrService', category: LogCategory.relay);
+          CrashReportingService.instance.logInitializationStep('Embedded relay initialized successfully');
+        } catch (e) {
         Log.error('Embedded relay initialization encountered issues: $e',
             name: 'NostrService', category: LogCategory.relay);
         CrashReportingService.instance.recordError(e, StackTrace.current,
             reason: 'Embedded relay initialization failed');
         CrashReportingService.instance.logInitializationStep('Embedded relay failed: $e');
-        
+
         // Check if this is a Web platform issue (path_provider not supported)
-        if (e.toString().contains('path_provider') || 
+        if (e.toString().contains('path_provider') ||
             e.toString().contains('getApplicationDocumentsDirectory')) {
           Log.warning('Embedded relay not supported on Web platform, will use fallback',
               name: 'NostrService', category: LogCategory.relay);
-          embeddedRelayFailed = true;
           _embeddedRelay = null; // Clear the failed instance
         } else {
           // On iOS, the relay might continue with limited functionality
@@ -102,13 +109,16 @@ class NostrService implements INostrService {
           if (!_embeddedRelay!.isInitialized) {
             Log.warning('Embedded relay failed to initialize properly',
                 name: 'NostrService', category: LogCategory.relay);
-            embeddedRelayFailed = true;
           } else {
             Log.info('Embedded relay continuing with limited functionality',
                 name: 'NostrService', category: LogCategory.relay);
           }
         }
       }
+      }
+
+      // Initialize embeddedRelayFailed for web platform
+      bool embeddedRelayFailed = kIsWeb;
 
       // Add external relays (embedded relay will manage connections if available)
       if (!embeddedRelayFailed && _embeddedRelay != null) {
@@ -266,12 +276,34 @@ class NostrService implements INostrService {
     // Check for too many concurrent subscriptions
     if (_subscriptions.length >= 10 && !bypassLimits) {
       Log.warning(
-          'Too many concurrent subscriptions (${_subscriptions.length}). Consider cancelling old ones.',
+          'Too many concurrent subscriptions (${_subscriptions.length}). Cleaning up old ones.',
           name: 'NostrService',
           category: LogCategory.relay);
+
       // Clean up any closed controllers
       _subscriptions.removeWhere((key, controller) => controller.isClosed);
-      Log.debug('After cleanup, active subscriptions: ${_subscriptions.length}',
+
+      // If still too many, aggressively close oldest profile subscriptions
+      if (_subscriptions.length >= 10) {
+        final profileSubs = _subscriptions.entries
+            .where((entry) => entry.key.startsWith('sub_') && entry.key.contains('profiles'))
+            .toList();
+
+        // Close half of the profile subscriptions to make room
+        for (int i = 0; i < profileSubs.length ~/ 2; i++) {
+          final entry = profileSubs[i];
+          Log.debug('Force closing old profile subscription: ${entry.key}',
+              name: 'NostrService', category: LogCategory.relay);
+          try {
+            entry.value.close();
+          } catch (e) {
+            // Ignore errors when closing
+          }
+          _subscriptions.remove(entry.key);
+        }
+      }
+
+      Log.info('After cleanup, active subscriptions: ${_subscriptions.length}',
           name: 'NostrService', category: LogCategory.relay);
     }
 
@@ -355,6 +387,22 @@ class NostrService implements INostrService {
           UnifiedLogger.error('Error in onEose callback for $id: $e',
               name: 'NostrService');
         }
+
+        // Auto-cleanup profile subscriptions after EOSE to prevent leaks
+        if (id.contains('profile') && _subscriptions.containsKey(id)) {
+          Timer(const Duration(seconds: 30), () {
+            if (_subscriptions.containsKey(id)) {
+              Log.debug('Auto-closing profile subscription after 30s: $id',
+                  name: 'NostrService', category: LogCategory.relay);
+              try {
+                _subscriptions[id]?.close();
+                _subscriptions.remove(id);
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+          });
+        }
       },
       onError: (error) {
         if (!controller.isClosed) {
@@ -427,6 +475,7 @@ class NostrService implements INostrService {
         // Try to reinitialize the embedded relay
         try {
           await _embeddedRelay!.initialize(
+            logLevel: logging.Level.WARNING, // Reduce logging spam - only warnings and errors
             enableGarbageCollection: true,
           );
           Log.info('Embedded relay reinitialized successfully',
@@ -470,7 +519,7 @@ class NostrService implements INostrService {
             // Create a new embedded relay instance
             _embeddedRelay = embedded.EmbeddedNostrRelay();
             await _embeddedRelay!.initialize(
-              enableGarbageCollection: true,
+              enableGarbageCollection: false, // TEMPORARY: Disable GC to test storage issue
             );
 
             // Re-add external relays
@@ -619,6 +668,7 @@ class NostrService implements INostrService {
       // Try to initialize embedded relay again
       _embeddedRelay = embedded.EmbeddedNostrRelay();
       await _embeddedRelay!.initialize(
+        logLevel: logging.Level.WARNING, // Reduce logging spam - only warnings and errors
         enableGarbageCollection: true,
       );
       UnifiedLogger.info('Embedded relay initialized on retry',

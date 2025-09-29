@@ -75,9 +75,27 @@ class EnhancedMobileCameraInterface extends CameraPlatformInterface {
       throw Exception('Camera controller not initialized');
     }
 
-    if (_isRecording) {
+    // Check actual camera recording status to avoid state desync
+    final isActuallyRecording = _controller!.value.isRecordingVideo;
+
+    if (_isRecording && isActuallyRecording) {
       Log.warning('Already recording, skipping startVideoRecording',
           name: 'EnhancedMobileCamera', category: LogCategory.system);
+      return;
+    }
+
+    // State recovery: if we think we're recording but camera says no, reset our state
+    if (_isRecording && !isActuallyRecording) {
+      Log.warning('State desync detected - resetting recording state',
+          name: 'EnhancedMobileCamera', category: LogCategory.system);
+      _isRecording = false;
+    }
+
+    // State recovery: if camera is recording but we think it's not, align our state
+    if (!_isRecording && isActuallyRecording) {
+      Log.warning('Camera already recording - aligning state',
+          name: 'EnhancedMobileCamera', category: LogCategory.system);
+      _isRecording = true;
       return;
     }
 
@@ -87,6 +105,19 @@ class EnhancedMobileCameraInterface extends CameraPlatformInterface {
       Log.info('Started enhanced camera recording',
           name: 'EnhancedMobileCamera', category: LogCategory.system);
     } catch (e) {
+      // Handle "Video is already recording" exception by aligning our state
+      if (e.toString().contains('Video is already recording')) {
+        Log.info('Camera is already recording - aligning our state to continue with existing recording',
+            name: 'EnhancedMobileCamera', category: LogCategory.system);
+
+        // Align our internal state with the camera's actual state
+        _isRecording = true;
+
+        // This is actually a success - we're now aligned with an ongoing recording
+        return;
+      }
+
+      _isRecording = false;
       Log.error('Failed to start enhanced camera recording: $e',
           name: 'EnhancedMobileCamera', category: LogCategory.system);
       rethrow;
@@ -99,9 +130,27 @@ class EnhancedMobileCameraInterface extends CameraPlatformInterface {
       throw Exception('Camera controller not initialized');
     }
 
-    if (!_isRecording) {
+    // Check actual camera recording status to avoid state desync
+    final isActuallyRecording = _controller!.value.isRecordingVideo;
+
+    if (!_isRecording && !isActuallyRecording) {
       Log.warning('Not currently recording, skipping stopVideoRecording',
           name: 'EnhancedMobileCamera', category: LogCategory.system);
+      return null;
+    }
+
+    // State recovery: if we think we're not recording but camera says yes, align our state
+    if (!_isRecording && isActuallyRecording) {
+      Log.warning('Camera is recording but state says no - aligning state',
+          name: 'EnhancedMobileCamera', category: LogCategory.system);
+      _isRecording = true;
+    }
+
+    // State recovery: if camera is not recording but we think it is, reset our state
+    if (_isRecording && !isActuallyRecording) {
+      Log.warning('State desync detected - camera not recording, resetting state',
+          name: 'EnhancedMobileCamera', category: LogCategory.system);
+      _isRecording = false;
       return null;
     }
 
@@ -113,6 +162,14 @@ class EnhancedMobileCameraInterface extends CameraPlatformInterface {
       return xFile.path;
     } catch (e) {
       _isRecording = false;
+
+      // Handle common camera exceptions gracefully
+      if (e.toString().contains('not recording') || e.toString().contains('VideoRecordingNotStarted')) {
+        Log.warning('Camera was not recording when stop requested - state aligned',
+            name: 'EnhancedMobileCamera', category: LogCategory.system);
+        return null;
+      }
+
       Log.error('Failed to stop enhanced camera recording: $e',
           name: 'EnhancedMobileCamera', category: LogCategory.system);
       return null;
@@ -174,7 +231,34 @@ class EnhancedMobileCameraInterface extends CameraPlatformInterface {
     return const ColoredBox(
       color: Colors.black,
       child: Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00B488)), // Vine green
+              strokeWidth: 3.0,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'diVine',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Initializing camera...',
+              style: TextStyle(
+                color: Color(0xFFBBBBBB),
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

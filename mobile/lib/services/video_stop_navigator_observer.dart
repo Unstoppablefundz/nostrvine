@@ -2,7 +2,6 @@
 // ABOUTME: Ensures videos stop when navigating away to prevent background playback
 
 import 'package:flutter/material.dart';
-import 'package:openvine/services/global_video_registry.dart';
 import 'package:openvine/utils/unified_logger.dart';
 
 class VideoStopNavigatorObserver extends NavigatorObserver {
@@ -32,13 +31,13 @@ class VideoStopNavigatorObserver extends NavigatorObserver {
 
   void _stopAllVideos(String action, String? routeName) {
     try {
-      GlobalVideoRegistry().pauseAllControllers();
+      // GlobalVideoRegistry removed - single controller architecture handles navigation cleanup
       Log.info(
-          '⏸️ Stopped all videos on navigation $action to route: ${routeName ?? 'unnamed'}',
+          '📱 Navigation $action to route: ${routeName ?? 'unnamed'} (single controller handles cleanup)',
           name: 'VideoStopNavigatorObserver',
           category: LogCategory.system);
     } catch (e) {
-      Log.error('Failed to stop videos on navigation: $e',
+      Log.error('Failed to log navigation: $e',
           name: 'VideoStopNavigatorObserver', category: LogCategory.system);
     }
   }

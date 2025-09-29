@@ -5,7 +5,6 @@ import 'package:openvine/services/subscription_manager.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:nostr_sdk/event.dart';
-import 'package:nostr_sdk/filter.dart';
 
 @GenerateMocks([NostrService, SubscriptionManager])
 import 'video_event_service_deduplication_test.mocks.dart';

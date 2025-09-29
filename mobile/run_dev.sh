@@ -1,0 +1,60 @@
+#!/bin/bash
+# ABOUTME: Development runner script for local testing
+# ABOUTME: Simplifies running the app with proper environment configuration and auto-detects iOS devices
+
+set -e
+
+# Default to Chrome if no device specified
+DEVICE_ARG="${1:-chrome}"
+BUILD_MODE="${2:-debug}"
+
+# Smart device resolution
+resolve_device() {
+    local requested_device="$1"
+
+    case "$requested_device" in
+        "ios"|"iphone")
+            echo "📱 Looking for iOS devices..." >&2
+            # Get the first iOS device ID
+            local ios_device_id=$(flutter devices --machine | jq -r '.[] | select(.targetPlatform == "ios") | .id' | head -1)
+
+            if [ -n "$ios_device_id" ] && [ "$ios_device_id" != "null" ]; then
+                echo "📱 Found iOS device: $ios_device_id" >&2
+                echo "$ios_device_id"
+            else
+                echo "❌ No iOS devices found. Available devices:" >&2
+                flutter devices >&2
+                exit 1
+            fi
+            ;;
+        "android")
+            echo "🤖 Looking for Android devices..." >&2
+            local android_device_id=$(flutter devices --machine | jq -r '.[] | select(.targetPlatform == "android") | .id' | head -1)
+
+            if [ -n "$android_device_id" ] && [ "$android_device_id" != "null" ]; then
+                echo "🤖 Found Android device: $android_device_id" >&2
+                echo "$android_device_id"
+            else
+                echo "❌ No Android devices found. Available devices:" >&2
+                flutter devices >&2
+                exit 1
+            fi
+            ;;
+        "macos"|"desktop")
+            echo "macos"
+            ;;
+        "chrome"|"web")
+            echo "chrome"
+            ;;
+        *)
+            # Assume it's already a specific device ID
+            echo "$requested_device"
+            ;;
+    esac
+}
+
+DEVICE=$(resolve_device "$DEVICE_ARG")
+
+echo "🚀 Running OpenVine in $BUILD_MODE mode on $DEVICE"
+
+flutter run -d "$DEVICE" --$BUILD_MODE

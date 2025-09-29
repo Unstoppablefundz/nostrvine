@@ -292,7 +292,7 @@ final authServiceProvider = Provider<AuthService>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef AuthServiceRef = ProviderRef<AuthService>;
-String _$nostrServiceHash() => r'f1cef7f66cb0adc4a1486f6a48f5bc36e5f2debd';
+String _$nostrServiceHash() => r'9abb59134b8ab07e1305061ea1701a2c3126745f';
 
 /// Core Nostr service with platform-aware embedded relay functionality and P2P capabilities
 ///
@@ -330,7 +330,7 @@ final subscriptionManagerProvider = Provider<SubscriptionManager>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef SubscriptionManagerRef = ProviderRef<SubscriptionManager>;
-String _$videoEventServiceHash() => r'741983deb9e89982c79ef8e56eb387b8ebd3ba07';
+String _$videoEventServiceHash() => r'6d27a3f288704ca824a00aaa13f295ab6597121c';
 
 /// Video event service depends on Nostr, SeenVideos, Blocklist, and SubscriptionManager services
 ///
@@ -448,51 +448,10 @@ final nip98AuthServiceProvider = AutoDisposeProvider<Nip98AuthService>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef Nip98AuthServiceRef = AutoDisposeProviderRef<Nip98AuthService>;
-String _$directUploadServiceHash() =>
-    r'ee282a5678b04f0a896c55acc9625150874282fa';
-
-/// Direct upload service with auth
-///
-/// Copied from [directUploadService].
-@ProviderFor(directUploadService)
-final directUploadServiceProvider =
-    AutoDisposeProvider<DirectUploadService>.internal(
-  directUploadService,
-  name: r'directUploadServiceProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$directUploadServiceHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
-
-@Deprecated('Will be removed in 3.0. Use Ref instead')
-// ignore: unused_element
-typedef DirectUploadServiceRef = AutoDisposeProviderRef<DirectUploadService>;
-String _$streamUploadServiceHash() =>
-    r'd442f77368f276eca0ffdae87ac89112340c791c';
-
-/// Stream upload service (uses Cloudflare Stream)
-///
-/// Copied from [streamUploadService].
-@ProviderFor(streamUploadService)
-final streamUploadServiceProvider =
-    AutoDisposeProvider<StreamUploadService>.internal(
-  streamUploadService,
-  name: r'streamUploadServiceProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$streamUploadServiceHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
-
-@Deprecated('Will be removed in 3.0. Use Ref instead')
-// ignore: unused_element
-typedef StreamUploadServiceRef = AutoDisposeProviderRef<StreamUploadService>;
 String _$blossomUploadServiceHash() =>
     r'd57fa3ec36057b410664e0da59b8067e68bebade';
 
+/// Blossom upload service (uses user-configured Blossom server)
 /// Blossom upload service (uses user-configured Blossom server)
 ///
 /// Copied from [blossomUploadService].
@@ -511,9 +470,9 @@ final blossomUploadServiceProvider =
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef BlossomUploadServiceRef = AutoDisposeProviderRef<BlossomUploadService>;
-String _$uploadManagerHash() => r'4e8002c8150ee750614007f98903b530da18ffa0';
+String _$uploadManagerHash() => r'0c5355f45e237e8409b806088294fe3a96573249';
 
-/// Upload manager depends on direct upload service and optionally blossom service
+/// Upload manager uses only Blossom upload service
 ///
 /// Copied from [uploadManager].
 @ProviderFor(uploadManager)
@@ -549,7 +508,7 @@ final apiServiceProvider = AutoDisposeProvider<ApiService>.internal(
 // ignore: unused_element
 typedef ApiServiceRef = AutoDisposeProviderRef<ApiService>;
 String _$videoEventPublisherHash() =>
-    r'9c1930c392faaa6e5f5b18e340cfae39764e049e';
+    r'c3075fa95de7b09347358e7c288d2c18c1d9e93a';
 
 /// Video event publisher depends on multiple services
 ///
@@ -587,26 +546,6 @@ final curationServiceProvider = Provider<CurationService>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef CurationServiceRef = ProviderRef<CurationService>;
-String _$exploreVideoManagerHash() =>
-    r'd7ad781789228f138c84a2ef95938b3ce13ce65e';
-
-/// ExploreVideoManager - bridges CurationService with Riverpod VideoManager
-///
-/// Copied from [exploreVideoManager].
-@ProviderFor(exploreVideoManager)
-final exploreVideoManagerProvider = Provider<ExploreVideoManager>.internal(
-  exploreVideoManager,
-  name: r'exploreVideoManagerProvider',
-  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-      ? null
-      : _$exploreVideoManagerHash,
-  dependencies: null,
-  allTransitiveDependencies: null,
-);
-
-@Deprecated('Will be removed in 3.0. Use Ref instead')
-// ignore: unused_element
-typedef ExploreVideoManagerRef = ProviderRef<ExploreVideoManager>;
 String _$contentReportingServiceHash() =>
     r'a7ab20421fc0c2534226e595c97238a0267e12ae';
 
@@ -732,5 +671,27 @@ final contentDeletionServiceProvider =
 // ignore: unused_element
 typedef ContentDeletionServiceRef
     = AutoDisposeFutureProviderRef<ContentDeletionService>;
+String _$brokenVideoTrackerHash() =>
+    r'36268bd477659a229f13da325ac23403a20e7fa7';
+
+/// Broken video tracker service for filtering non-functional videos
+///
+/// Copied from [brokenVideoTracker].
+@ProviderFor(brokenVideoTracker)
+final brokenVideoTrackerProvider =
+    AutoDisposeFutureProvider<BrokenVideoTracker>.internal(
+  brokenVideoTracker,
+  name: r'brokenVideoTrackerProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$brokenVideoTrackerHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef BrokenVideoTrackerRef
+    = AutoDisposeFutureProviderRef<BrokenVideoTracker>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

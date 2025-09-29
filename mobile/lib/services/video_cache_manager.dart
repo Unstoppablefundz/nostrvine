@@ -1,0 +1,214 @@
+// ABOUTME: Persistent video cache manager for offline playback and bandwidth reduction
+// ABOUTME: Manages local storage of video files with intelligent cleanup and size management
+
+import 'dart:io';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:http/io_client.dart';
+import 'package:openvine/services/broken_video_tracker.dart';
+import 'package:openvine/utils/unified_logger.dart';
+
+class VideoCacheManager extends CacheManager {
+  static const key = 'openvine_video_cache';
+
+  // Cache configuration
+  static const Duration _stalePeriod = Duration(days: 30); // Videos stay cached for 30 days
+  static const int _maxCacheObjects = 150; // Max 150 videos cached
+  static const int _maxCacheSizeMB = 500; // Max 500MB for video cache
+
+  static VideoCacheManager? _instance;
+
+  factory VideoCacheManager() {
+    return _instance ??= VideoCacheManager._();
+  }
+
+  VideoCacheManager._() : super(
+    Config(
+      key,
+      stalePeriod: _stalePeriod,
+      maxNrOfCacheObjects: _maxCacheObjects,
+      repo: JsonCacheInfoRepository(databaseName: key),
+      fileService: _createVideoHttpFileService(),
+    ),
+  );
+
+  static HttpFileService _createVideoHttpFileService() {
+    final httpClient = HttpClient();
+
+    // Longer timeouts for video downloads
+    httpClient.connectionTimeout = const Duration(seconds: 30);
+    httpClient.idleTimeout = const Duration(minutes: 2);
+
+    // Optimize for video streaming
+    httpClient.maxConnectionsPerHost = 4;
+
+    return HttpFileService(
+      httpClient: IOClient(httpClient),
+    );
+  }
+
+  /// Download and cache a video for offline use
+  Future<File?> cacheVideo(String videoUrl, String videoId, {BrokenVideoTracker? brokenVideoTracker}) async {
+    try {
+      Log.info('🎬 Caching video ${videoId.substring(0, 8)}... from $videoUrl',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      final fileInfo = await downloadFile(
+        videoUrl,
+        key: videoId, // Use video ID as cache key
+        authHeaders: {},
+      );
+
+      Log.info('✅ Video ${videoId.substring(0, 8)}... cached successfully',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      return fileInfo.file;
+    } catch (error) {
+      final errorMessage = error.toString();
+      Log.error('❌ Failed to cache video ${videoId.substring(0, 8)}...: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      // Mark video as broken if it's a 404, network error, or timeout
+      if (brokenVideoTracker != null && _isVideoError(errorMessage)) {
+        await brokenVideoTracker.markVideoBroken(videoId, 'Cache failure: $errorMessage');
+      }
+
+      return null;
+    }
+  }
+
+  /// Check if error indicates a broken/non-functional video
+  bool _isVideoError(String errorMessage) {
+    final lowerError = errorMessage.toLowerCase();
+    return lowerError.contains('404') ||
+           lowerError.contains('not found') ||
+           lowerError.contains('invalid statuscode: 404') ||
+           lowerError.contains('httpexception') ||
+           lowerError.contains('timeout') ||
+           lowerError.contains('connection refused') ||
+           lowerError.contains('network error');
+  }
+
+  /// Check if video is available in cache
+  Future<bool> isVideoCached(String videoId) async {
+    try {
+      final fileInfo = await getFileFromCache(videoId);
+      final isCached = fileInfo != null && fileInfo.file.existsSync();
+
+      Log.debug('🔍 Video ${videoId.substring(0, 8)}... cached: $isCached',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      return isCached;
+    } catch (error) {
+      Log.warning('⚠️ Error checking cache for video ${videoId.substring(0, 8)}...: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+      return false;
+    }
+  }
+
+  /// Get cached video file if available
+  Future<File?> getCachedVideo(String videoId) async {
+    try {
+      final fileInfo = await getFileFromCache(videoId);
+      if (fileInfo?.file.existsSync() == true) {
+        Log.info('🎯 Using cached video ${videoId.substring(0, 8)}... : ${fileInfo!.file.path}',
+            name: 'VideoCacheManager', category: LogCategory.video);
+        return fileInfo.file;
+      }
+    } catch (error) {
+      Log.warning('⚠️ Error retrieving cached video ${videoId.substring(0, 8)}...: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+    }
+    return null;
+  }
+
+  /// Preemptively cache videos for offline use
+  Future<void> preCache(List<String> videoUrls, List<String> videoIds) async {
+    if (videoUrls.length != videoIds.length) {
+      Log.error('❌ Mismatch between video URLs and IDs for precaching',
+          name: 'VideoCacheManager', category: LogCategory.video);
+      return;
+    }
+
+    Log.info('🔄 Pre-caching ${videoUrls.length} videos for offline use',
+        name: 'VideoCacheManager', category: LogCategory.video);
+
+    // Check current cache size before starting
+    await _manageCacheSize();
+
+    // Cache videos concurrently but limit concurrency to avoid overwhelming the network
+    const batchSize = 3;
+    for (int i = 0; i < videoUrls.length; i += batchSize) {
+      final batch = <Future<File?>>[];
+      final end = (i + batchSize > videoUrls.length) ? videoUrls.length : i + batchSize;
+
+      for (int j = i; j < end; j++) {
+        // Skip if already cached
+        if (await isVideoCached(videoIds[j])) {
+          Log.debug('⏭️ Skipping already cached video ${videoIds[j].substring(0, 8)}...',
+              name: 'VideoCacheManager', category: LogCategory.video);
+          continue;
+        }
+
+        batch.add(cacheVideo(videoUrls[j], videoIds[j]));
+      }
+
+      // Wait for current batch to complete before starting next
+      await Future.wait(batch, eagerError: false);
+    }
+
+    Log.info('✅ Video pre-caching completed',
+        name: 'VideoCacheManager', category: LogCategory.video);
+  }
+
+  /// Manage cache size to stay within limits
+  Future<void> _manageCacheSize() async {
+    try {
+      // Simple cache size management - the base CacheManager handles most of this
+      Log.debug('📊 Managing video cache size (max $_maxCacheSizeMB MB, max $_maxCacheObjects files)',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      // Let the base cache manager handle cleanup based on maxNrOfCacheObjects
+      // This is more reliable than manual cache info inspection
+    } catch (error) {
+      Log.error('❌ Error managing cache size: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+    }
+  }
+
+  /// Get cache statistics
+  Future<Map<String, dynamic>> getCacheStats() async {
+    try {
+      // Return basic stats without accessing internal cache info
+      return {
+        'totalFiles': 'unknown', // CacheManager doesn't expose this easily
+        'totalSizeMB': 'managed',
+        'maxSizeMB': _maxCacheSizeMB,
+        'maxFiles': _maxCacheObjects,
+        'stalePeriodDays': _stalePeriod.inDays,
+      };
+    } catch (error) {
+      Log.error('❌ Error getting cache stats: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+      return {'error': error.toString()};
+    }
+  }
+
+  /// Clear all cached videos (useful for testing or when user wants to free space)
+  Future<void> clearAllCache() async {
+    try {
+      Log.info('🧹 Clearing all cached videos...',
+          name: 'VideoCacheManager', category: LogCategory.video);
+
+      await emptyCache();
+
+      Log.info('✅ All cached videos cleared',
+          name: 'VideoCacheManager', category: LogCategory.video);
+    } catch (error) {
+      Log.error('❌ Error clearing video cache: $error',
+          name: 'VideoCacheManager', category: LogCategory.video);
+    }
+  }
+}
+
+// Singleton instance for easy access across the app
+final openVineVideoCache = VideoCacheManager();

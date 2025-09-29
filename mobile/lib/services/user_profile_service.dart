@@ -43,6 +43,9 @@ class UserProfileService {
   bool _prefetchActive = false;
   DateTime? _lastPrefetchAt;
 
+  // Background refresh rate limiting
+  DateTime? _lastBackgroundRefresh;
+
   final SubscriptionManager _subscriptionManager;
   ProfileCacheService? _persistentCache;
 
@@ -232,47 +235,26 @@ class UserProfileService {
 
     try {
       _pendingRequests.add(pubkey);
-      Log.info(
-          '🔍 Starting profile fetch for user: ${pubkey.substring(0, 8)}...',
+      Log.debug(
+          '🔍 Starting profile fetch for user: ${pubkey.substring(0, 8)}... (using batch)',
           name: 'UserProfileService',
           category: LogCategory.system);
-      Log.info('  - Force refresh: $forceRefresh',
-          name: 'UserProfileService', category: LogCategory.system);
-      Log.info('  - Has cached profile: ${_profileCache.containsKey(pubkey)}',
-          name: 'UserProfileService', category: LogCategory.system);
-      if (_profileCache.containsKey(pubkey)) {
-        final cached = _profileCache[pubkey]!;
-        Log.info('  - Cached eventId: ${cached.eventId}',
-            name: 'UserProfileService', category: LogCategory.system);
-        Log.info('  - Cached name: ${cached.name}',
-            name: 'UserProfileService', category: LogCategory.system);
-      }
 
-      // Create filter for kind 0 events from this user
-      final filter = Filter(
-        kinds: [0], // NIP-01 user metadata
-        authors: [pubkey],
-        limit: 1, // Only need the most recent profile
-      );
+      // Add to batch instead of creating individual subscription
+      _pendingBatchPubkeys.add(pubkey);
 
-      // Use managed subscription
-      final subscriptionId = await _subscriptionManager.createSubscription(
-        name: 'profile_${pubkey.substring(0, 8)}',
-        filters: [filter],
-        onEvent: _handleProfileEvent,
-        onError: (error) => _handleProfileError(pubkey, error),
-        onComplete: () => _handleProfileComplete(pubkey),
-        priority:
-            1, // Highest priority for individual profile fetches (user-facing)
-      );
+      // Cancel existing debounce timer and create new one
+      _batchDebounceTimer?.cancel();
+      _batchDebounceTimer = Timer(const Duration(milliseconds: 100), () {
+        _executeBatchFetch();
+      });
 
-      _activeSubscriptionIds[pubkey] = subscriptionId;
-
-      return null; // Profile will be available in cache once loaded
+      return null; // Profile will be available in cache once batch loaded
     } catch (e) {
       Log.error('Failed to fetch profile for ${pubkey.substring(0, 8)}: $e',
           name: 'UserProfileService', category: LogCategory.system);
       _pendingRequests.remove(pubkey);
+      _pendingBatchPubkeys.remove(pubkey);
       return null;
     }
   }
@@ -363,17 +345,23 @@ class UserProfileService {
     }
   }
 
+  // TODO: Use for error handling if needed
+  /*
   /// Handle profile fetch error
   void _handleProfileError(String pubkey, dynamic error) {
     Log.error('Profile fetch error for ${pubkey.substring(0, 8)}: $error',
         name: 'UserProfileService', category: LogCategory.system);
     _cleanupProfileRequest(pubkey);
   }
+  */
 
+  // TODO: Use for completion handling if needed
+  /*
   /// Handle profile fetch completion
   void _handleProfileComplete(String pubkey) {
     _cleanupProfileRequest(pubkey);
   }
+  */
 
   /// Cleanup profile request
   void _cleanupProfileRequest(String pubkey) {
@@ -688,11 +676,26 @@ class UserProfileService {
       return;
     }
 
+    // Rate limit background refreshes to avoid overwhelming the UI
+    final now = DateTime.now();
+    if (_lastBackgroundRefresh != null &&
+        now.difference(_lastBackgroundRefresh!).inSeconds < 30) {
+      Log.debug(
+          'Rate limiting background refresh for ${pubkey.substring(0, 8)}...',
+          name: 'UserProfileService',
+          category: LogCategory.system);
+      return;
+    }
+
     try {
       Log.debug(
           'Background refresh for stale profile ${pubkey.substring(0, 8)}...',
           name: 'UserProfileService',
           category: LogCategory.system);
+
+      _lastBackgroundRefresh = now;
+
+      // Use a longer timeout for background refreshes to reduce urgency
       await fetchProfile(pubkey, forceRefresh: true);
     } catch (e) {
       Log.error('Background refresh failed for ${pubkey.substring(0, 8)}: $e',

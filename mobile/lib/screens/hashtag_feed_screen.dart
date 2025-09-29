@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/screens/explore_video_screen.dart';
+import 'package:openvine/screens/pure/explore_video_screen_pure.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/widgets/video_feed_item.dart';
 
@@ -179,7 +179,7 @@ class _HashtagFeedScreenState extends ConsumerState<HashtagFeedScreen> {
                           // Navigate to inline video player for this hashtag
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (context) => ExploreVideoScreen(
+                              builder: (context) => ExploreVideoScreenPure(
                                 startingVideo: video,
                                 videoList: videos,
                                 contextTitle: '#${widget.hashtag}',
@@ -193,8 +193,7 @@ class _HashtagFeedScreenState extends ConsumerState<HashtagFeedScreen> {
                           width: double.infinity,
                           child: VideoFeedItem(
                             video: video,
-                            isActive: false, // Never active in list view
-                            forceInfoBelow: true,
+                            index: index,
                           ),
                         ),
                       );

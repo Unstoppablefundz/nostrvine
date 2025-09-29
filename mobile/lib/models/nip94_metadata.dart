@@ -2,7 +2,6 @@
 // ABOUTME: Handles vine content metadata structure and Nostr event generation
 
 import 'package:nostr_sdk/event.dart';
-import 'package:openvine/models/cloudinary_models.dart';
 
 // Simple key pair class to replace Keychain temporarily
 class SimpleKeyPair {
@@ -67,70 +66,7 @@ class NIP94Metadata {
         additionalTags: additionalTags,
       );
 
-  /// Create NIP-94 metadata from Cloudinary upload response
-  factory NIP94Metadata.fromCloudinaryResponse({
-    required CloudinaryUploadResponse cloudinaryResponse,
-    required String sha256Hash,
-    String? summary,
-    String? altText,
-    String? blurhash,
-    int? durationMs,
-    double? fps,
-    Map<String, String> additionalTags = const {},
-  }) =>
-      NIP94Metadata(
-        url: cloudinaryResponse.publicUrl,
-        mimeType: 'image/${cloudinaryResponse.format}',
-        sha256Hash: sha256Hash,
-        sizeBytes: cloudinaryResponse.bytes,
-        dimensions: '${cloudinaryResponse.width}x${cloudinaryResponse.height}',
-        blurhash: blurhash,
-        altText: altText,
-        summary: summary,
-        durationMs: durationMs,
-        fps: fps,
-        createdAt: cloudinaryResponse.createdAt,
-        additionalTags: {
-          'cloudinary_public_id': cloudinaryResponse.publicId,
-          'uploader': cloudinaryResponse.userPubkey ?? 'unknown',
-          ...additionalTags,
-        },
-      );
 
-  /// Create NIP-94 metadata from Cloudflare Stream video
-  factory NIP94Metadata.fromStreamVideo({
-    required String videoId,
-    required String hlsUrl,
-    String? dashUrl,
-    String? thumbnailUrl,
-    String? summary,
-    String? altText,
-    String? blurhash,
-    int? durationMs,
-    double? fps,
-    Map<String, String> additionalTags = const {},
-  }) =>
-      NIP94Metadata(
-        url: hlsUrl, // Use HLS URL as primary URL
-        mimeType: 'video/mp4',
-        sha256Hash: '', // TODO: Get from Stream API or calculate
-        sizeBytes: 0, // TODO: Get from Stream API
-        dimensions: '640x480', // TODO: Get actual dimensions from Stream
-        blurhash: blurhash,
-        altText: altText,
-        summary: summary,
-        durationMs: durationMs,
-        fps: fps ?? 30.0, // Default to 30fps for videos
-        createdAt: DateTime.now(),
-        thumbnailUrl: thumbnailUrl,
-        additionalTags: {
-          'stream_video_id': videoId,
-          'stream_hls_url': hlsUrl,
-          if (dashUrl != null) 'stream_dash_url': dashUrl,
-          'cdn_provider': 'cloudflare_stream',
-          ...additionalTags,
-        },
-      );
 
   /// Create NIP-94 metadata from JSON (backend response)
   factory NIP94Metadata.fromJson(Map<String, dynamic> json) => NIP94Metadata(

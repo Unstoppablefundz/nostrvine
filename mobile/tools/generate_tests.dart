@@ -269,6 +269,7 @@ void main() {
 }
 
 String _generateDefaultWidgetTest(String className, String inputPath) {
+  // ignore: unused_local_variable
   final snakeCase = _toSnakeCase(className);
   final importPath = inputPath.replaceFirst('lib/', 'package:openvine/');
 

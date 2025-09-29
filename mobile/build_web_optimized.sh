@@ -10,7 +10,8 @@ flutter clean
 flutter build web \
   --release \
   --tree-shake-icons \
-  --pwa-strategy=offline-first
+  --pwa-strategy=offline-first \
+  
 
 # Copy updated headers file to build output
 cp web-deploy/_headers build/web/_headers

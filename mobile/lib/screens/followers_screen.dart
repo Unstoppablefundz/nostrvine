@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nostr_sdk/nostr_sdk.dart' as nostr_sdk;
 import 'package:openvine/providers/app_providers.dart';
-import 'package:openvine/screens/profile_screen.dart';
+import 'package:openvine/screens/profile_screen_scrollable.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/user_profile_tile.dart';
@@ -192,7 +192,7 @@ class _FollowersScreenState extends ConsumerState<FollowersScreen> {
   void _navigateToProfile(String pubkey) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ProfileScreen(profilePubkey: pubkey),
+        builder: (context) => ProfileScreenScrollable(profilePubkey: pubkey),
       ),
     );
   }

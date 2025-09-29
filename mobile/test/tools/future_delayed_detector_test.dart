@@ -1,5 +1,4 @@
 // ABOUTME: Tests for Future.delayed detection tool
-import 'package:openvine/utils/unified_logger.dart';
 // ABOUTME: Verifies ability to find and report Future.delayed usage across codebase
 
 import 'dart:io';

@@ -5,12 +5,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/services/connection_status_service.dart';
-import 'package:openvine/services/nostr_service_interface.dart';
+// import 'package:openvine/services/connection_status_service.dart'; // TODO: Restore when needed
+// import 'package:openvine/services/nostr_service_interface.dart'; // TODO: Restore when needed
 import 'package:openvine/services/seen_videos_service.dart';
-import 'package:openvine/services/subscription_manager.dart';
+// import 'package:openvine/services/subscription_manager.dart'; // TODO: Restore when needed
 import 'package:openvine/services/video_event_service.dart';
-import 'package:openvine/services/video_manager_interface.dart';
+// TODO: Remove or refactor NostrVideoBridge to work with new Riverpod architecture
+// import 'package:openvine/services/video_manager_interface.dart';
 import 'package:openvine/utils/unified_logger.dart';
 
 /// Bridge service that connects Nostr video events to the TDD VideoManager
@@ -22,8 +23,9 @@ import 'package:openvine/utils/unified_logger.dart';
 /// 4. Managing subscription lifecycle
 /// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
 class NostrVideoBridge {
-  NostrVideoBridge({
-    required IVideoManager videoManager,
+  // TODO: Temporarily disabled - needs refactoring for new Riverpod architecture
+  /*NostrVideoBridge({
+    required dynamic videoManager, // IVideoManager videoManager,
     required INostrService nostrService,
     required SubscriptionManager subscriptionManager,
     SeenVideosService? seenVideosService,
@@ -31,9 +33,14 @@ class NostrVideoBridge {
         _videoEventService = VideoEventService(nostrService,
             subscriptionManager: subscriptionManager),
         _seenVideosService = seenVideosService;
-  final IVideoManager _videoManager;
-  final VideoEventService _videoEventService;
-  final SeenVideosService? _seenVideosService;
+  */ // End of commented constructor
+
+  // Temporary placeholder constructor - TODO: Refactor for Riverpod
+  NostrVideoBridge.disabled();
+
+  final dynamic _videoManager = null; // IVideoManager _videoManager;
+  final VideoEventService? _videoEventService = null;
+  final SeenVideosService? _seenVideosService = null;
 
   // Bridge state
   bool _isActive = false;
@@ -65,12 +72,12 @@ class NostrVideoBridge {
         'lastEventReceived': _lastEventReceived?.toIso8601String(),
         'videoEventServiceStats': {
           'isSubscribed':
-              _videoEventService.isSubscribed(SubscriptionType.discovery),
-          'isLoading': _videoEventService.isLoading,
-          'hasEvents': _videoEventService.hasEvents,
+              _videoEventService?.isSubscribed(SubscriptionType.discovery) ?? false,
+          'isLoading': _videoEventService?.isLoading ?? false,
+          'hasEvents': _videoEventService?.hasEvents ?? false,
           'eventCount':
-              _videoEventService.getEventCount(SubscriptionType.discovery),
-          'error': _videoEventService.error,
+              _videoEventService?.getEventCount(SubscriptionType.discovery) ?? 0,
+          'error': _videoEventService?.error,
         },
       };
 
@@ -94,7 +101,7 @@ class NostrVideoBridge {
       _isActive = true;
 
       // Subscribe to video events
-      await _videoEventService.subscribeToVideoFeed(
+      await _videoEventService?.subscribeToVideoFeed(
         subscriptionType: SubscriptionType.discovery,
         authors: authors,
         hashtags: hashtags,
@@ -184,7 +191,7 @@ class NostrVideoBridge {
 
   /// Manually process existing events (useful for initial load)
   Future<void> processExistingEvents() async {
-    final existingEvents = _videoEventService.discoveryVideos;
+    final existingEvents = _videoEventService?.discoveryVideos ?? [];
     Log.debug(
         'NostrVideoBridge: Processing ${existingEvents.length} existing events',
         name: 'NostrVideoBridge',
@@ -201,11 +208,11 @@ class NostrVideoBridge {
         'videoManager': _videoManager.getDebugInfo(),
         'videoEventService': {
           'isSubscribed':
-              _videoEventService.isSubscribed(SubscriptionType.discovery),
-          'isLoading': _videoEventService.isLoading,
+              _videoEventService?.isSubscribed(SubscriptionType.discovery) ?? false,
+          'isLoading': _videoEventService?.isLoading ?? false,
           'eventCount':
-              _videoEventService.getEventCount(SubscriptionType.discovery),
-          'error': _videoEventService.error,
+              _videoEventService?.getEventCount(SubscriptionType.discovery) ?? 0,
+          'error': _videoEventService?.error,
         },
         'connection':
             true, // _connectionService.isConnected may not be available
@@ -370,7 +377,8 @@ class NostrVideoBridge {
 /// Factory for creating NostrVideoBridge instances with proper dependencies
 /// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
 class NostrVideoBridgeFactory {
-  static NostrVideoBridge create({
+  // TODO: Temporarily disabled - needs refactoring for new Riverpod architecture
+  /*static NostrVideoBridge create({
     required IVideoManager videoManager,
     required INostrService nostrService,
     required SubscriptionManager subscriptionManager,
@@ -383,4 +391,5 @@ class NostrVideoBridgeFactory {
         subscriptionManager: subscriptionManager,
         seenVideosService: seenVideosService,
       );
+  */ // End of commented factory method
 }

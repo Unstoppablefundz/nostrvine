@@ -11,21 +11,24 @@ import 'package:openvine/providers/social_providers.dart' as social_providers;
 import 'package:openvine/providers/tab_visibility_provider.dart';
 import 'package:openvine/screens/activity_screen.dart';
 import 'package:openvine/screens/explore_screen.dart';
-import 'package:openvine/screens/profile_screen.dart';
-import 'package:openvine/screens/search_screen.dart';
-import 'package:openvine/screens/universal_camera_screen.dart';
+import 'package:openvine/screens/profile_screen_scrollable.dart' as profile;
+import 'package:openvine/screens/pure/search_screen_pure.dart';
+import 'package:openvine/screens/pure/universal_camera_screen_pure.dart';
 import 'package:openvine/screens/video_feed_screen.dart';
 import 'package:openvine/screens/web_auth_screen.dart';
 import 'package:openvine/services/auth_service.dart';
 import 'package:openvine/services/background_activity_manager.dart';
 import 'package:openvine/services/crash_reporting_service.dart';
-import 'package:openvine/services/global_video_registry.dart';
+import 'package:openvine/providers/individual_video_providers.dart';
 import 'package:openvine/services/logging_config_service.dart';
+import 'package:openvine/services/startup_performance_service.dart';
 import 'package:openvine/services/video_stop_navigator_observer.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
+import 'package:openvine/utils/log_message_batcher.dart';
 import 'package:openvine/widgets/age_verification_dialog.dart';
 import 'package:openvine/widgets/app_lifecycle_handler.dart';
+// Temporarily disabled: import 'package:openvine/widgets/video_metrics_overlay.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' as io;
 import 'package:openvine/network/vine_cdn_http_overrides.dart';
@@ -42,16 +45,36 @@ Future<void> _startOpenVineApp() async {
   // Ensure bindings are initialized first (required for everything)
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize video_player_media_kit globally (replaces AVPlayer on iOS)
-  VideoPlayerMediaKit.ensureInitialized(iOS: true, android: true, macOS: true);
+  // Initialize startup performance monitoring FIRST
+  await StartupPerformanceService.instance.initialize();
+  StartupPerformanceService.instance.startPhase('bindings');
+
+  // DEFER video player initialization until UI is ready to avoid blocking main thread
+  // This is a major cause of startup lag on iOS
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    StartupPerformanceService.instance.startPhase('video_player_init');
+    try {
+      VideoPlayerMediaKit.ensureInitialized(iOS: true, android: true, macOS: true, web: true);
+      StartupPerformanceService.instance.completePhase('video_player_init');
+      StartupPerformanceService.instance.markVideoReady();
+    } catch (e) {
+      Log.error('Failed to initialize video player: $e', name: 'Main');
+      StartupPerformanceService.instance.completePhase('video_player_init');
+    }
+  });
+
+  StartupPerformanceService.instance.completePhase('bindings');
 
   // Initialize crash reporting ASAP so we can use it for logging
+  StartupPerformanceService.instance.startPhase('crash_reporting');
   await CrashReportingService.instance.initialize();
+  StartupPerformanceService.instance.completePhase('crash_reporting');
 
   // Now we can start logging
   Log.info('[STARTUP] App initialization started at $startTime',
       name: 'Main', category: LogCategory.system);
   CrashReportingService.instance.logInitializationStep('Bindings initialized');
+  StartupPerformanceService.instance.checkpoint('crash_reporting_ready');
 
   // Enable DNS override for legacy Vine CDN domains if configured
   const bool enableVineCdnFix = bool.fromEnvironment('VINE_CDN_DNS_FIX', defaultValue: true);
@@ -66,11 +89,14 @@ Future<void> _startOpenVineApp() async {
     }
   }
 
-  // Initialize window manager for macOS to control actual window size
+  // DEFER window manager initialization until after UI is ready to avoid blocking
   if (defaultTargetPlatform == TargetPlatform.macOS) {
-    try {
-      CrashReportingService.instance.logInitializationStep('Initializing window manager');
-      await windowManager.ensureInitialized();
+    // Defer window manager setup to not block main thread during critical startup
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        StartupPerformanceService.instance.startPhase('window_manager');
+        CrashReportingService.instance.logInitializationStep('Initializing window manager');
+        await windowManager.ensureInitialized();
 
       // Set initial window size for desktop vine experience
       const initialWindowOptions = WindowOptions(
@@ -83,19 +109,29 @@ Future<void> _startOpenVineApp() async {
         titleBarStyle: TitleBarStyle.normal,
       );
 
-      await windowManager.waitUntilReadyToShow(initialWindowOptions, () async {
-        await windowManager.show();
-        await windowManager.focus();
-      });
-    } catch (e) {
-      // If window_manager fails, continue without it - ResponsiveWrapper will still work
-      Log.error('Window manager initialization failed: $e', name: 'main');
-    }
+        await windowManager.waitUntilReadyToShow(initialWindowOptions, () async {
+          await windowManager.show();
+          await windowManager.focus();
+        });
+
+        StartupPerformanceService.instance.completePhase('window_manager');
+      } catch (e) {
+        // If window_manager fails, continue without it - ResponsiveWrapper will still work
+        Log.error('Window manager initialization failed: $e', name: 'main');
+        StartupPerformanceService.instance.completePhase('window_manager');
+      }
+    });
   }
 
   // Initialize logging configuration
+  StartupPerformanceService.instance.startPhase('logging_config');
   CrashReportingService.instance.logInitializationStep('Initializing logging configuration');
   await LoggingConfigService.instance.initialize();
+
+  // Initialize log message batcher to reduce noise from repetitive native logs
+  LogMessageBatcher.instance.initialize();
+
+  StartupPerformanceService.instance.completePhase('logging_config');
 
   // Log that core startup is complete
   CrashReportingService.instance.logInitializationStep('Core app startup complete');
@@ -103,6 +139,7 @@ Future<void> _startOpenVineApp() async {
   // Log startup time tracking
   final initDuration = DateTime.now().difference(startTime).inMilliseconds;
   CrashReportingService.instance.log('[STARTUP] Initial setup took ${initDuration}ms');
+  StartupPerformanceService.instance.checkpoint('core_startup_complete');
 
   // Set default log level based on build mode if not already configured
   if (const String.fromEnvironment('LOG_LEVEL').isEmpty) {
@@ -122,127 +159,48 @@ Future<void> _startOpenVineApp() async {
   // Store original debugPrint to avoid recursion
   final originalDebugPrint = debugPrint;
 
-  // Override debugPrint to respect logging levels
+  // Override debugPrint to respect logging levels and batch repetitive messages
   debugPrint = (message, {wrapWidth}) {
     if (message != null && UnifiedLogger.isLevelEnabled(LogLevel.debug)) {
+      // Try to batch repetitive EXTERNAL-EVENT messages from native code
+      if (message.contains('[EXTERNAL-EVENT]') && message.contains('already exists in database or was rejected')) {
+        // Use our batcher for these specific messages
+        LogMessageBatcher.instance.tryBatchMessage(message, level: LogLevel.info, category: LogCategory.relay);
+        return; // Don't print the individual message
+      } else if (message.contains('[EXTERNAL-EVENT]') && message.contains('matches subscription')) {
+        LogMessageBatcher.instance.tryBatchMessage(message, level: LogLevel.debug, category: LogCategory.relay);
+        return; // Don't print the individual message
+      } else if (message.contains('[EXTERNAL-EVENT]') && message.contains('Received event') && message.contains('from')) {
+        LogMessageBatcher.instance.tryBatchMessage(message, level: LogLevel.debug, category: LogCategory.relay);
+        return; // Don't print the individual message
+      }
+
       originalDebugPrint(message, wrapWidth: wrapWidth);
     }
   };
 
   // Configure global error widget builder for user-friendly error display
+  // IMPORTANT: Use only the most basic widgets - even Text requires directionality context
+  // This is only for early startup errors before MaterialApp is ready
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    // In debug mode, show detailed error information
-    if (kDebugMode) {
-      return Container(
-        color: const Color(0xFF1A1A1A),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.bug_report,
-                  color: Colors.orange,
-                  size: 48,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Debug Error',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Text(
-                      details.exception.toString(),
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // In debug mode, just log the error
-                    Log.warning(
-                        'User acknowledged debug error: ${details.exception}',
-                        name: 'ErrorWidget');
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Restart App'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // In release mode, show user-friendly error message
+    // Use only basic Container and Decoration - no Text widgets at all
     return Container(
       color: const Color(0xFF1A1A1A),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                color: Colors.red,
-                size: 64,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Something went wrong',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'We encountered an unexpected issue. Please try restarting the app.',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // Log error for analytics in release mode
-                  Log.error(
-                      'User encountered widget error: ${details.exception}',
-                      name: 'ErrorWidget');
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try again'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4CAF50),
-                  foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-              ),
-            ],
+      child: const Center(
+        child: SizedBox(
+          width: 100,
+          height: 100,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.orange,
+              borderRadius: BorderRadius.all(Radius.circular(8)),
+            ),
           ),
         ),
       ),
     );
   };
+
 
   // Handle Flutter framework errors more gracefully
   final previousOnError = FlutterError.onError; // Preserve Crashlytics handler
@@ -271,7 +229,11 @@ Future<void> _startOpenVineApp() async {
   };
 
   // Initialize Hive for local data storage
+  StartupPerformanceService.instance.startPhase('hive_storage');
   await Hive.initFlutter();
+  StartupPerformanceService.instance.completePhase('hive_storage');
+
+  StartupPerformanceService.instance.checkpoint('pre_app_launch');
 
   Log.info('divine starting...', name: 'Main');
   Log.info('Log level: ${UnifiedLogger.currentLevel.name}', name: 'Main');
@@ -298,11 +260,21 @@ class DivineApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const bool crashProbe = bool.fromEnvironment('CRASHLYTICS_PROBE', defaultValue: false);
+
+    // Determine the home widget - wrap with VideoMetricsOverlay if debug mode
+    Widget homeWidget = const ResponsiveWrapper(child: AppInitializer());
+
+    // Temporarily disabled VideoMetricsOverlay to fix Stack Overflow errors
+    // TODO: Re-implement with safer rebuild logic
+    // if (kDebugMode) {
+    //   homeWidget = VideoMetricsOverlay(child: homeWidget);
+    // }
+
     final app = MaterialApp(
       title: 'divine',
       debugShowCheckedModeBanner: false,
       theme: VineTheme.theme,
-      home: const ResponsiveWrapper(child: AppInitializer()),
+      home: homeWidget,
       navigatorObservers: [VideoStopNavigatorObserver()],
     );
 
@@ -388,9 +360,17 @@ class _AppInitializerState extends ConsumerState<AppInitializer> {
     Timer? timeoutTimer;
     var hasTimedOut = false;
 
+    // Start monitoring slow startup detection
+    final slowStartupTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      StartupPerformanceService.instance.checkForSlowStartup();
+    });
+
     try {
+      StartupPerformanceService.instance.startPhase('service_initialization');
+
       // Start timeout detection
-      timeoutTimer = Timer(const Duration(seconds: 10), () {
+      // Increased timeout for Dart VM Service discovery
+      timeoutTimer = Timer(const Duration(seconds: 120), () {
         if (!_isInitialized && !hasTimedOut) {
           hasTimedOut = true;
           Log.warning('[STARTUP] WARNING: Initialization taking > 10 seconds',
@@ -408,12 +388,14 @@ class _AppInitializerState extends ConsumerState<AppInitializer> {
 
       // Initialize background activity manager early
       try {
-        CrashReportingService.instance.logInitializationStep('Starting BackgroundActivityManager');
-        final serviceStart = DateTime.now();
-        await BackgroundActivityManager().initialize();
-        final serviceDuration = DateTime.now().difference(serviceStart).inMilliseconds;
-        CrashReportingService.instance.logInitializationStep(
-            '✓ BackgroundActivityManager initialized in ${serviceDuration}ms');
+        await StartupPerformanceService.instance.measureWork(
+          'background_activity_manager',
+          () async {
+            CrashReportingService.instance.logInitializationStep('Starting BackgroundActivityManager');
+            await BackgroundActivityManager().initialize();
+            CrashReportingService.instance.logInitializationStep('✓ BackgroundActivityManager initialized');
+          }
+        );
       } catch (e) {
         CrashReportingService.instance.logInitializationStep(
             '✗ BackgroundActivityManager failed: $e');
@@ -423,22 +405,27 @@ class _AppInitializerState extends ConsumerState<AppInitializer> {
 
       if (!mounted) return;
       setState(() => _initializationStatus = 'Checking authentication...');
-      CrashReportingService.instance.logInitializationStep('Starting AuthService');
-      final authStart = DateTime.now();
-      await ref.read(authServiceProvider).initialize();
-      final authDuration = DateTime.now().difference(authStart).inMilliseconds;
-      CrashReportingService.instance.logInitializationStep(
-          '✓ AuthService initialized in ${authDuration}ms');
+
+      await StartupPerformanceService.instance.measureWork(
+        'auth_service',
+        () async {
+          CrashReportingService.instance.logInitializationStep('Starting AuthService');
+          await ref.read(authServiceProvider).initialize();
+          CrashReportingService.instance.logInitializationStep('✓ AuthService initialized');
+        }
+      );
 
       if (!mounted) return;
       setState(() => _initializationStatus = 'Connecting to Nostr network...');
       try {
-        CrashReportingService.instance.logInitializationStep('Starting NostrService');
-        final nostrStart = DateTime.now();
-        await ref.read(nostrServiceProvider).initialize();
-        final nostrDuration = DateTime.now().difference(nostrStart).inMilliseconds;
-        CrashReportingService.instance.logInitializationStep(
-            '✓ NostrService initialized in ${nostrDuration}ms');
+        await StartupPerformanceService.instance.measureWork(
+          'nostr_service',
+          () async {
+            CrashReportingService.instance.logInitializationStep('Starting NostrService');
+            await ref.read(nostrServiceProvider).initialize();
+            CrashReportingService.instance.logInitializationStep('✓ NostrService initialized');
+          }
+        );
       } catch (e) {
         CrashReportingService.instance.logInitializationStep('✗ NostrService failed: $e');
         Log.error('Nostr service initialization failed: $e',
@@ -499,6 +486,12 @@ class _AppInitializerState extends ConsumerState<AppInitializer> {
 
       // Cancel timeout timer
       timeoutTimer.cancel();
+      slowStartupTimer.cancel();
+
+      StartupPerformanceService.instance.completePhase('service_initialization');
+
+      // Mark UI as ready for interaction
+      StartupPerformanceService.instance.markUIReady();
 
       // Log total initialization time
       final totalDuration = DateTime.now().difference(initStartTime).inMilliseconds;
@@ -513,32 +506,37 @@ class _AppInitializerState extends ConsumerState<AppInitializer> {
         _initializationStatus = 'Ready!';
       });
 
-      // Initialize social provider synchronously to ensure it's ready for feed
-      if (!mounted) return;
-      setState(() => _initializationStatus = 'Loading social connections...');
-      try {
-        CrashReportingService.instance.logInitializationStep('Starting SocialProvider');
-        final socialStart = DateTime.now();
-        await ref
-            .read(social_providers.socialNotifierProvider.notifier)
-            .initialize();
-        final socialDuration = DateTime.now().difference(socialStart).inMilliseconds;
-        CrashReportingService.instance.logInitializationStep(
-            '✓ SocialProvider initialized in ${socialDuration}ms');
-        Log.info('Social provider initialized successfully',
-            name: 'Main', category: LogCategory.system);
-      } catch (e) {
-        CrashReportingService.instance.logInitializationStep('✗ SocialProvider failed: $e');
-        Log.warning('Social provider initialization failed: $e',
-            name: 'Main', category: LogCategory.system);
-        // Continue anyway - social features will work with empty following list
-      }
+      // DEFER social provider initialization to not block UI
+      // Social connections can load in the background while user sees the app
+      StartupPerformanceService.instance.deferUntilUIReady(() async {
+        if (!mounted) return;
+        try {
+          await StartupPerformanceService.instance.measureWork(
+            'social_provider',
+            () async {
+              CrashReportingService.instance.logInitializationStep('Starting SocialProvider (deferred)');
+              await ref
+                  .read(social_providers.socialNotifierProvider.notifier)
+                  .initialize();
+              CrashReportingService.instance.logInitializationStep('✓ SocialProvider initialized (deferred)');
+            }
+          );
+          Log.info('Social provider initialized successfully (deferred)',
+              name: 'Main', category: LogCategory.system);
+        } catch (e) {
+          CrashReportingService.instance.logInitializationStep('✗ SocialProvider failed: $e');
+          Log.warning('Social provider initialization failed: $e',
+              name: 'Main', category: LogCategory.system);
+          // Continue anyway - social features will work with empty following list
+        }
+      }, taskName: 'social_provider_init');
 
       Log.info('All services initialized successfully',
           name: 'Main', category: LogCategory.system);
     } catch (e, stackTrace) {
       // Cancel timeout timer on error
       timeoutTimer?.cancel();
+      slowStartupTimer.cancel();
 
       final errorDuration = DateTime.now().difference(initStartTime).inMilliseconds;
       CrashReportingService.instance.logInitializationStep(
@@ -832,8 +830,8 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   DateTime? _lastFeedTap;
 
   late List<Widget> _screens; // Created once to preserve state
-  final GlobalKey<ExploreScreenState> _exploreScreenKey =
-      GlobalKey<ExploreScreenState>();
+  final GlobalKey<State<ExploreScreen>> _exploreScreenKey =
+      GlobalKey<State<ExploreScreen>>();
 
   // Profile viewing state
   String? _viewingProfilePubkey; // null means viewing own profile
@@ -872,8 +870,8 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       ExploreScreen(key: _exploreScreenKey),
       // If starting on profile tab, create it immediately; otherwise use placeholder
       widget.initialTabIndex == 3
-          ? const ProfileScreen(profilePubkey: null) // null means current user
-          : Container(), // Placeholder for ProfileScreen - will be replaced when needed
+          ? const profile.ProfileScreenScrollable(profilePubkey: null)
+          : Container(),
     ];
 
     Log.info(
@@ -903,30 +901,19 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // Notify screens of visibility changes (schedule to avoid provider re-entrancy)
     if (_currentIndex == 2 && index != 2) {
       // Leaving explore screen
-      Future.microtask(() => _exploreScreenKey.currentState?.onScreenHidden());
+      Future.microtask(() => (_exploreScreenKey.currentState as dynamic)?.onScreenHidden());
     } else if (_currentIndex != 2 && index == 2) {
       // Entering explore screen
-      Future.microtask(() => _exploreScreenKey.currentState?.onScreenVisible());
+      Future.microtask(() => (_exploreScreenKey.currentState as dynamic)?.onScreenVisible());
     }
 
     // When tapping the profile tab directly, always show current user's profile
     if (index == 3) {
       // Reset to current user's profile when tapping the tab
       _viewingProfilePubkey = null;
-
-      // Lazy load ProfileScreen when profile tab is first accessed
-      if (_screens[3] is Container) {
-        setState(() {
-          _screens[3] =
-              ProfileScreen(profilePubkey: null); // null means current user
-        });
-      } else {
-        // Update existing ProfileScreen to show current user
-        setState(() {
-          _screens[3] =
-              ProfileScreen(profilePubkey: null); // null means current user
-        });
-      }
+      setState(() {
+        _screens[3] = const profile.ProfileScreenScrollable(profilePubkey: null);
+      });
     }
 
     // Check for double-tap on feed icon
@@ -949,7 +936,7 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
           name: 'MainNavigation',
           category: LogCategory.ui);
       // Tell explore screen to exit feed mode and return to grid (only if in feed mode)
-      final exploreState = _exploreScreenKey.currentState;
+      final exploreState = _exploreScreenKey.currentState as dynamic;
       if (exploreState != null) {
         Log.debug(
             '✅ Found explore screen state, isInFeedMode: ${exploreState.isInFeedMode}',
@@ -1000,7 +987,7 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     });
 
     // Pass hashtag to explore screen
-    _exploreScreenKey.currentState?.showHashtagVideos(hashtag);
+    (_exploreScreenKey.currentState as dynamic)?.showHashtagVideos(hashtag);
   }
 
   /// Public method to switch to a specific tab
@@ -1013,16 +1000,16 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   /// Navigate to a user's profile
   /// Called from other screens to view a specific user's profile
   void navigateToProfile(String? profilePubkey) {
-    // IMMEDIATELY pause ALL videos on profile navigation
-    GlobalVideoRegistry().pauseAllControllers();
-    Log.info('⏸️ Paused all videos when navigating to profile',
+    // IMMEDIATELY pause current video on profile navigation
+    final container = ProviderScope.containerOf(context);
+    // Clear active video when navigating away from feed content
+    container.read(activeVideoProvider.notifier).clearActiveVideo();
+    Log.info('⏸️ Paused current video when navigating to profile',
         name: 'Main', category: LogCategory.system);
 
     setState(() {
       _viewingProfilePubkey = profilePubkey;
-      // Always create or update the profile screen
-      _screens[3] = ProfileScreen(profilePubkey: _viewingProfilePubkey);
-      // Switch to profile tab
+      _screens[3] = profile.ProfileScreenScrollable(profilePubkey: _viewingProfilePubkey);
       _currentIndex = 3;
     });
   }
@@ -1032,16 +1019,18 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   void navigateToSearch() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const SearchScreen()),
+      MaterialPageRoute(builder: (context) => const SearchScreenPure()),
     );
   }
 
   /// Play a specific video in the explore tab with context videos
   /// Called from search results to play a video within its result set
   void playSpecificVideo(List<VideoEvent> videos, int startIndex) {
-    // IMMEDIATELY pause ALL videos before playing specific video
-    GlobalVideoRegistry().pauseAllControllers();
-    Log.info('⏸️ Paused all videos before playing specific video',
+    // IMMEDIATELY pause current video before playing specific video
+    final container = ProviderScope.containerOf(context);
+    // Clear active video before switching context
+    container.read(activeVideoProvider.notifier).clearActiveVideo();
+    Log.info('⏸️ Paused current video before playing specific video',
         name: 'Main', category: LogCategory.system);
 
     // Switch to explore tab first
@@ -1049,7 +1038,9 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
     // After switching tabs, play the specific video with its context
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _exploreScreenKey.currentState?.playSpecificVideo(videos, startIndex);
+      if (startIndex < videos.length) {
+        (_exploreScreenKey.currentState as dynamic)?.playSpecificVideo(videos[startIndex], videos, startIndex);
+      }
     });
   }
 
@@ -1117,9 +1108,10 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
           // Capture context before async operations
           final scaffoldContext = context;
 
-          // IMMEDIATELY pause ALL videos before opening camera
-          GlobalVideoRegistry().pauseAllControllers();
-          Log.info('⏸️ Paused all videos before camera',
+          // IMMEDIATELY clear current video before opening camera to prevent interference
+          // Clear active video before opening camera to avoid interference
+          ref.read(activeVideoProvider.notifier).clearActiveVideo();
+          Log.info('⏸️ Cleared current video before camera to prevent recording interference',
               name: 'Main', category: LogCategory.system);
 
           // Check age verification before opening camera
@@ -1141,7 +1133,7 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   await Navigator.push(
                     scaffoldContext,
                     MaterialPageRoute(
-                        builder: (context) => const UniversalCameraScreen()),
+                        builder: (context) => const UniversalCameraScreenPure()),
                   );
                 }
 
@@ -1172,7 +1164,7 @@ class MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               await Navigator.push(
                 scaffoldContext,
                 MaterialPageRoute(
-                    builder: (context) => const UniversalCameraScreen()),
+                    builder: (context) => const UniversalCameraScreenPure()),
               );
             }
 

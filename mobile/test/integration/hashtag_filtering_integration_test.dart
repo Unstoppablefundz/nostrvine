@@ -61,8 +61,11 @@ class MinimalMockNostrService implements INostrService {
   Future<void> initialize({List<String>? customRelays}) async {}
 
   @override
-  Stream<Event> subscribeToEvents(
-          {required List<Filter> filters, bool bypassLimits = false}) =>
+  Stream<Event> subscribeToEvents({
+    required List<Filter> filters,
+    bool bypassLimits = false,
+    void Function()? onEose,
+  }) =>
       const Stream<Event>.empty();
 
   @override

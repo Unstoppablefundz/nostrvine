@@ -4,8 +4,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
-import 'package:openvine/services/video_manager_interface.dart';
+// import 'package:openvine/providers/video_manager_providers.dart'; // TODO: Restore when VideoManager providers are available
+// import 'package:openvine/services/video_manager_interface.dart'; // TODO: Restore when VideoManager interface is available
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/video_thumbnail_widget.dart';
@@ -93,14 +93,18 @@ class _VideoPreviewTileState extends ConsumerState<VideoPreviewTile>
       Log.debug('   Thumbnail URL: ${widget.video.effectiveThumbnailUrl}',
           name: 'VideoPreviewTile', category: LogCategory.ui);
 
+      // TODO: Restore when VideoManager is available - temporarily disabled
+      setState(() {
+        _hasError = true;
+        _isInitializing = false;
+      });
+      /*
       // Use VideoManager to create controller securely
       final videoManager = ref.read(videoManagerProvider.notifier);
       final controllerId = 'preview_${widget.video.id}';
 
       final controller = await videoManager.createNetworkController(
-        controllerId,
         widget.video.videoUrl!,
-        priority: PreloadPriority.current,
       );
 
       if (controller != null && mounted && widget.isActive) {
@@ -125,6 +129,7 @@ class _VideoPreviewTileState extends ConsumerState<VideoPreviewTile>
           _isInitializing = false;
         });
       }
+      */
     } catch (e) {
       Log.error(
           'Preview initialization failed for ${widget.video.id.substring(0, 8)}: $e',
@@ -145,8 +150,11 @@ class _VideoPreviewTileState extends ConsumerState<VideoPreviewTile>
     Log.debug('📱️ Disposing preview for ${widget.video.id.substring(0, 8)}...',
         name: 'VideoPreviewTile', category: LogCategory.ui);
     if (_videoControllerId != null) {
+      // TODO: Restore when VideoManager is available
+      /*
       // VideoManager will handle cleanup and GlobalVideoRegistry coordination
       ref.read(videoManagerProvider.notifier).disposeVideo(_videoControllerId!);
+      */
       _videoControllerId = null;
     }
   }
@@ -157,7 +165,7 @@ class _VideoPreviewTileState extends ConsumerState<VideoPreviewTile>
 
     // Watch for the controller via VideoManager provider
     final controller = _videoControllerId != null
-        ? ref.watch(videoPlayerControllerProvider(_videoControllerId!))
+        ? null // Temporarily disabled: ref.watch(videoPlayerControllerProvider(_videoControllerId!))
         : null;
 
     return GestureDetector(

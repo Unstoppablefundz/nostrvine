@@ -2,14 +2,12 @@
 // ABOUTME: Memory-efficient PageView with intelligent preloading and error boundaries
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/models/video_state.dart';
 import 'package:openvine/providers/home_feed_provider.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
 import 'package:openvine/providers/user_profile_providers.dart';
 import 'package:openvine/providers/social_providers.dart' as social;
 import 'package:openvine/main.dart';
@@ -17,6 +15,8 @@ import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/video_feed_item.dart';
 import 'package:openvine/state/video_feed_state.dart';
+import 'package:openvine/providers/individual_video_providers.dart';
+import 'package:openvine/services/video_preload_service.dart';
 
 /// Feed context for filtering videos
 enum FeedContext {
@@ -101,6 +101,8 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
   @override
   void initState() {
     super.initState();
+    Log.debug('🏗️ Widget VideoFeedScreen created with key ${widget.key}',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
     Log.info('🎬 VideoFeedScreen: initState called',
         name: 'VideoFeedScreen', category: LogCategory.ui);
 
@@ -112,11 +114,20 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
 
   @override
   void dispose() {
+    Log.debug('🗑️ Widget VideoFeedScreen disposing with key ${widget.key}',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
+
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
 
     // Pause all videos when screen is disposed
+    Log.debug('📱 Callback firing: dispose._pauseAllVideos, widget mounted: $mounted',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
     _pauseAllVideos();
+    // Clear any prewarmed neighbors
+    try {
+      ref.read(prewarmManagerProvider.notifier).clear();
+    } catch (_) {}
 
     super.dispose();
   }
@@ -125,15 +136,43 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
 
+    Log.debug('🌍 AppLifecycle: $state, timestamp: ${DateTime.now()}, mounted: $mounted',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
+
+    // On macOS/desktop, don't pause videos for brief focus changes (inactive)
+    // This prevents excessive pausing that was preventing videos from playing
+    final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
     switch (state) {
       case AppLifecycleState.paused:
+        Log.debug('📱 App paused - pausing videos, state: $state',
+            name: 'VideoFeedScreen', category: LogCategory.ui);
+        _pauseAllVideos();
+
       case AppLifecycleState.inactive:
-        _pauseAllVideos();
+        if (!isDesktop) {
+          // Only pause for inactive on mobile platforms
+          Log.debug('📱 App inactive (mobile) - pausing videos, state: $state',
+              name: 'VideoFeedScreen', category: LogCategory.ui);
+          _pauseAllVideos();
+        } else {
+          Log.debug('🖥️ App inactive (desktop) - ignoring to prevent excessive pausing, state: $state',
+              name: 'VideoFeedScreen', category: LogCategory.ui);
+        }
+
       case AppLifecycleState.resumed:
+        Log.debug('📱 App resumed - resuming current video, state: $state',
+            name: 'VideoFeedScreen', category: LogCategory.ui);
         _resumeCurrentVideo();
+
       case AppLifecycleState.detached:
+        Log.debug('📱 App detached - pausing videos, state: $state',
+            name: 'VideoFeedScreen', category: LogCategory.ui);
         _pauseAllVideos();
+
       case AppLifecycleState.hidden:
+        Log.debug('📱 App hidden - pausing videos, state: $state',
+            name: 'VideoFeedScreen', category: LogCategory.ui);
         _pauseAllVideos();
     }
   }
@@ -142,11 +181,16 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
     // Store the previous index before updating
     final previousIndex = _currentIndex;
 
+    Log.debug('📱 Callback firing: _onPageChanged($index), widget mounted: $mounted, previousIndex: $previousIndex',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
+
     setState(() {
       _currentIndex = index;
     });
 
     // Get current videos from home feed state
+    Log.debug('🔍 Attempting ref.read(homeFeedProvider) from VideoFeedScreen._onPageChanged, mounted: $mounted',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
     final feedState = ref.read(homeFeedProvider).valueOrNull;
     if (feedState == null) return;
 
@@ -161,8 +205,13 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
     // Check if we're near the end and should load more videos
     _checkForPagination(index, videos.length);
 
-    // Trigger preloading around new position
-    ref.read(videoManagerProvider.notifier).preloadAroundIndex(index);
+    // Preloading is handled by the single video controller through VideoFeedItem visibility
+
+    // Prewarm neighbor controllers (±1) with a small cap
+    _prewarmNeighbors(videos, index);
+
+    // Preload upcoming videos in background for smooth playback
+    _preloadUpcomingVideos(index, videos);
 
     // Batch fetch profiles for videos around current position
     _batchFetchProfilesAroundIndex(index, videos);
@@ -175,34 +224,37 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
       int videoIndex, List<VideoEvent> videos, int previousPageIndex) {
     if (videoIndex < 0 || videoIndex >= videos.length) return;
 
-    // Immediately pause ALL videos first to ensure clean state
-    _pauseAllVideos();
+    // With single video controller, no need to pause all videos first
+    // The controller automatically stops the previous video when switching
+    Log.debug('🎬 Playing video at index $videoIndex (single controller handles previous video cleanup)',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
 
-    // Then play only the current video
+    // Play the current video - single controller handles the rest
     final currentVideo = videos[videoIndex];
     _playVideo(currentVideo.id);
   }
 
   void _playVideo(String videoId) {
     try {
-      // The video will be played by the VideoFeedItem when it detects it's active
-      // We just need to ensure the video is preloaded
-      ref.read(videoManagerProvider.notifier).preloadVideo(videoId);
-      Log.debug('Requested play for video: ${videoId.substring(0, 8)}...',
+      // Video playback is now handled by the VideoFeedItem when it detects visibility
+      // No need to manually play - the single controller architecture handles this
+      Log.debug('Current video set to: ${videoId.substring(0, 8)}...',
           name: 'VideoFeedScreen', category: LogCategory.ui);
     } catch (e) {
-      Log.error('Error playing video $videoId: $e',
+      Log.error('Error setting current video $videoId: $e',
           name: 'VideoFeedScreen', category: LogCategory.ui);
     }
   }
 
   void _pauseAllVideos() {
+    Log.debug('📱 _pauseAllVideos called, widget mounted: $mounted',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
     try {
-      ref.read(videoManagerProvider.notifier).pauseAllVideos();
-      Log.debug('Paused all videos in feed',
-          name: 'VideoFeedScreen', category: LogCategory.ui);
+      // Clear active video; per-item controllers will stop/dispose via autoDispose
+      ref.read(activeVideoProvider.notifier).clearActiveVideo();
+      Log.debug('Cleared active video', name: 'VideoFeedScreen', category: LogCategory.ui);
     } catch (e) {
-      Log.error('Error pausing all videos: $e',
+      Log.error('Error pausing videos: $e',
           name: 'VideoFeedScreen', category: LogCategory.ui);
     }
   }
@@ -216,38 +268,36 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
   void resumeVideos() {
     _resumeCurrentVideo();
 
-    // Also trigger preloading around current position to reload videos that were stopped
-    final feedState = ref.read(homeFeedProvider).valueOrNull;
-    if (feedState != null && feedState.videos.isNotEmpty) {
-      ref.read(videoManagerProvider.notifier).preloadAroundIndex(_currentIndex);
-      Log.debug(
-          '▶️ Triggered preloading around index $_currentIndex when resuming feed',
-          name: 'VideoFeedScreen',
-          category: LogCategory.ui);
-    }
+    // Resume is handled by the single video controller when videos become visible
   }
 
   // Context filtering is now handled by Riverpod feed mode providers
 
   void _resumeCurrentVideo() {
+    Log.debug('📱 _resumeCurrentVideo called, widget mounted: $mounted, currentIndex: $_currentIndex',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
+
+    Log.debug('🔍 Attempting ref.read(homeFeedProvider) from _resumeCurrentVideo, mounted: $mounted',
+        name: 'VideoFeedScreen', category: LogCategory.ui);
     final feedState = ref.read(homeFeedProvider).valueOrNull;
-    if (feedState == null) return;
+    if (feedState == null) {
+      Log.debug('_resumeCurrentVideo: feedState is null, returning',
+          name: 'VideoFeedScreen', category: LogCategory.ui);
+      return;
+    }
 
     final videos = feedState.videos;
     if (_currentIndex < videos.length) {
       final currentVideo = videos[_currentIndex];
+      Log.debug('_resumeCurrentVideo: resuming video ${currentVideo.id.substring(0, 8)}...',
+          name: 'VideoFeedScreen', category: LogCategory.ui);
 
-      // Check if video needs to be preloaded first
-      final videoState = ref.read(videoStateByIdProvider(currentVideo.id));
-      if (videoState?.loadingState == VideoLoadingState.notLoaded) {
-        Log.debug(
-            'Current video needs reload, preloading: ${currentVideo.id.substring(0, 8)}...',
-            name: 'VideoFeedScreen',
-            category: LogCategory.ui);
-        ref.read(videoManagerProvider.notifier).preloadVideo(currentVideo.id);
-      }
+      // Video loading is handled by the single video controller and VideoFeedItem
 
       _playVideo(currentVideo.id);
+    } else {
+      Log.debug('_resumeCurrentVideo: currentIndex $_currentIndex >= videos.length ${videos.length}',
+          name: 'VideoFeedScreen', category: LogCategory.ui);
     }
   }
 
@@ -287,27 +337,8 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
     Log.info('🎬 VideoFeedScreen: build() called',
         name: 'VideoFeedScreen', category: LogCategory.ui);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: VineTheme.vineGreen,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Text(
-          'divine',
-          style: GoogleFonts.pacifico(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        top: false, // AppBar handles top safe area
-        bottom: false, // Let videos extend to bottom for full screen
-        child: _buildBody(),
-      ),
-    );
+    // VideoFeedScreen is now a body widget - parent handles Scaffold
+    return _buildBody();
   }
 
   Widget _buildBody() {
@@ -322,8 +353,7 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
         name: 'VideoFeedScreen',
         category: LogCategory.ui);
 
-    // Watch the video manager provider to ensure it gets instantiated and syncs videos
-    ref.watch(videoManagerProvider);
+    // The single video controller is instantiated via VideoFeedItem widgets
 
     return videoFeedAsync.when(
       loading: () {
@@ -342,6 +372,14 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
         if (videos.isEmpty) {
           return _buildEmptyState();
         }
+
+        // Ensure an initial active video is set once when data arrives
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final currentActive = ref.read(activeVideoProvider);
+          if (currentActive == null && _currentIndex < videos.length) {
+            ref.read(activeVideoProvider.notifier).setActiveVideo(videos[_currentIndex].id);
+          }
+        });
 
         return _buildVideoFeed(videos, feedState);
       },
@@ -513,6 +551,12 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
         name: 'VideoFeedScreen',
         category: LogCategory.ui);
 
+    // Per-item controllers manage their own lifecycle; no global feed setup needed
+    // Prewarm neighbors for initial view
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prewarmNeighbors(videos, _currentIndex);
+    });
+
     return Semantics(
       label: 'Video feed',
       child: Stack(
@@ -524,8 +568,8 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
                 Log.info('📱 User started scrolling',
                     name: 'FeedScreenV2', category: LogCategory.ui);
 
-                // Immediately pause all videos when scrolling starts
-                _pauseAllVideos();
+                // With single video controller, no need to pause on scroll
+                // The controller automatically handles video switching during scroll
               } else if (notification is ScrollEndNotification) {
                 Log.info('📱 User stopped scrolling',
                     name: 'FeedScreenV2', category: LogCategory.ui);
@@ -564,7 +608,7 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
                 final isActive = index == _currentIndex;
 
                 // Error boundary for individual videos
-                return _buildVideoItemWithErrorBoundary(video, isActive);
+                return _buildVideoItemWithErrorBoundary(video, isActive, index);
               },
             ),
           ),
@@ -611,13 +655,12 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
     );
   }
 
-  Widget _buildVideoItemWithErrorBoundary(VideoEvent video, bool isActive) {
+  Widget _buildVideoItemWithErrorBoundary(VideoEvent video, bool isActive, int index) {
     try {
       return VideoFeedItem(
         video: video,
-        isActive: isActive,
-        onVideoError: (error) => _handleVideoError(video.id, error),
-        tabContext: TabContext.feed,
+        index: index,
+        onTap: () => _handleVideoError(video.id, 'Video tapped'),
       );
     } catch (e) {
       // Error boundary - prevent one bad video from crashing entire feed
@@ -625,6 +668,41 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
           name: 'FeedScreenV2', category: LogCategory.ui);
       return _buildErrorItem('Error loading video: ${video.title ?? video.id}');
     }
+  }
+
+  /// Prewarm neighbors around the current index and cap concurrency
+  void _prewarmNeighbors(List<VideoEvent> videos, int currentIndex) {
+    if (videos.isEmpty) return;
+
+    final ids = <String>{};
+    // current + neighbors ±1
+    for (final i in [currentIndex - 1, currentIndex, currentIndex + 1]) {
+      if (i >= 0 && i < videos.length) {
+        final v = videos[i];
+        if (v.videoUrl != null && v.videoUrl!.isNotEmpty) {
+          ids.add(v.id);
+        }
+      }
+    }
+
+    ref.read(prewarmManagerProvider.notifier).setPrewarmed(ids, cap: 3);
+  }
+
+  /// Preload upcoming videos for smooth playback using background service
+  void _preloadUpcomingVideos(int currentIndex, List<VideoEvent> videos) {
+    if (videos.isEmpty) return;
+
+    final preloadService = VideoPreloadService();
+
+    // Calculate range to preload (current + next 2-3 videos)
+    final startIndex = currentIndex;
+    const preloadCount = 3;
+
+    Log.debug('🔄 Triggering video preload from index $startIndex',
+        name: 'VideoFeedScreen', category: LogCategory.video);
+
+    // Start preloading in background (non-blocking)
+    preloadService.preloadVideos(videos, startIndex: startIndex, preloadCount: preloadCount);
   }
 
   Widget _buildErrorItem(String message) => ColoredBox(

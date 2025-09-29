@@ -7,6 +7,7 @@ import 'package:openvine/services/image_cache_manager.dart';
 import 'package:openvine/models/notification_model.dart';
 import 'package:openvine/theme/app_theme.dart';
 import 'package:openvine/theme/vine_theme.dart';
+import 'package:openvine/utils/unified_logger.dart';
 
 class NotificationListItem extends StatelessWidget {
   const NotificationListItem({
@@ -110,8 +111,24 @@ class NotificationListItem extends StatelessWidget {
                     height: 48,
                     color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
                   ),
-                  errorWidget: (context, url, error) =>
-                      _buildDefaultAvatar(isDarkMode),
+                  errorWidget: (context, url, error) {
+                    // Log the failed URL for debugging
+                    if (error.toString().contains('Invalid image data') ||
+                        error.toString().contains('Image codec failed')) {
+                      Log.warning(
+                        'Invalid image data for actor avatar URL: $url - Error: $error',
+                        name: 'NotificationListItem',
+                        category: LogCategory.ui,
+                      );
+                    } else {
+                      Log.debug(
+                        'Actor avatar load failed, URL: $url - Error: $error',
+                        name: 'NotificationListItem',
+                        category: LogCategory.ui,
+                      );
+                    }
+                    return _buildDefaultAvatar(isDarkMode);
+                  },
                 )
               : _buildDefaultAvatar(isDarkMode),
         ),
@@ -247,15 +264,32 @@ class NotificationListItem extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            errorWidget: (context, url, error) => Container(
-              width: 64,
-              height: 64,
-              color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
-              child: Icon(
-                Icons.video_library,
-                color: isDarkMode ? Colors.grey[600] : Colors.grey[400],
-              ),
-            ),
+            errorWidget: (context, url, error) {
+              // Log the failed URL for debugging
+              if (error.toString().contains('Invalid image data') ||
+                  error.toString().contains('Image codec failed')) {
+                Log.warning(
+                  'Invalid image data for video thumbnail URL: $url - Error: $error',
+                  name: 'NotificationListItem',
+                  category: LogCategory.ui,
+                );
+              } else {
+                Log.debug(
+                  'Video thumbnail load failed, URL: $url - Error: $error',
+                  name: 'NotificationListItem',
+                  category: LogCategory.ui,
+                );
+              }
+              return Container(
+                width: 64,
+                height: 64,
+                color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+                child: Icon(
+                  Icons.video_library,
+                  color: isDarkMode ? Colors.grey[600] : Colors.grey[400],
+                ),
+              );
+            },
           ),
         ),
       );

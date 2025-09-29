@@ -16,8 +16,7 @@ import 'package:openvine/services/content_deletion_service.dart';
 import 'package:openvine/services/content_reporting_service.dart';
 import 'package:openvine/services/curated_list_service.dart';
 import 'package:openvine/services/curation_service.dart';
-import 'package:openvine/services/direct_upload_service.dart';
-import 'package:openvine/services/explore_video_manager.dart';
+// Removed legacy explore_video_manager.dart import
 import 'package:openvine/providers/analytics_providers.dart';
 import 'package:openvine/services/hashtag_service.dart';
 import 'package:openvine/services/mute_service.dart';
@@ -34,7 +33,7 @@ import 'package:openvine/services/seen_videos_service.dart';
 import 'package:openvine/services/social_service.dart';
 import 'package:openvine/services/hashtag_cache_service.dart';
 import 'package:openvine/services/blossom_upload_service.dart';
-import 'package:openvine/services/stream_upload_service.dart';
+import 'package:openvine/services/broken_video_tracker.dart';
 import 'package:openvine/services/subscription_manager.dart';
 import 'package:openvine/services/upload_manager.dart';
 import 'package:openvine/services/user_profile_service.dart';
@@ -188,12 +187,20 @@ INostrService nostrService(Ref ref) {
   // Use factory to create platform-appropriate service
   final service = NostrServiceFactory.create(keyManager);
 
-  // Initialize the service with appropriate parameters
-  NostrServiceFactory.initialize(service);
+  // Note: Initialization is handled explicitly in main.dart to ensure proper async timing
+  // Do NOT call NostrServiceFactory.initialize(service) here as it causes double initialization
 
-  // Cleanup on disposal
+  // Cleanup on disposal - but only in production, not during development hot reloads
   ref.onDispose(() {
-    service.dispose();
+    // Skip disposal during debug mode to prevent embedded relay shutdown during hot reloads
+    if (!kDebugMode) {
+      service.dispose();
+    } else {
+      // In debug mode, just close subscriptions but keep the relay alive
+      service.closeAllSubscriptions().catchError((e) {
+        UnifiedLogger.warning('Error closing subscriptions during hot reload: $e');
+      });
+    }
   });
 
   return service;
@@ -322,20 +329,10 @@ Nip98AuthService nip98AuthService(Ref ref) {
   return Nip98AuthService(authService: authService);
 }
 
-/// Direct upload service with auth
-@riverpod
-DirectUploadService directUploadService(Ref ref) {
-  final authService = ref.watch(nip98AuthServiceProvider);
-  return DirectUploadService(authService: authService);
-}
 
-/// Stream upload service (uses Cloudflare Stream)
-@riverpod
-StreamUploadService streamUploadService(Ref ref) {
-  final authService = ref.watch(nip98AuthServiceProvider);
-  return StreamUploadService(authService: authService);
-}
 
+
+/// Blossom upload service (uses user-configured Blossom server)
 /// Blossom upload service (uses user-configured Blossom server)
 @riverpod
 BlossomUploadService blossomUploadService(Ref ref) {
@@ -344,13 +341,11 @@ BlossomUploadService blossomUploadService(Ref ref) {
   return BlossomUploadService(authService: authService, nostrService: nostrService);
 }
 
-/// Upload manager depends on direct upload service and optionally blossom service
+/// Upload manager uses only Blossom upload service
 @Riverpod(keepAlive: true)
 UploadManager uploadManager(Ref ref) {
-  final directService = ref.watch(directUploadServiceProvider);
   final blossomService = ref.watch(blossomUploadServiceProvider);
   return UploadManager(
-    uploadService: directService,
     blossomService: blossomService,
   );
 }
@@ -369,12 +364,14 @@ VideoEventPublisher videoEventPublisher(Ref ref) {
   final nostrService = ref.watch(nostrServiceProvider);
   final authService = ref.watch(authServiceProvider);
   final personalEventCache = ref.watch(personalEventCacheServiceProvider);
+  final videoEventService = ref.watch(videoEventServiceProvider);
 
   return VideoEventPublisher(
     uploadManager: uploadManager,
     nostrService: nostrService,
     authService: authService,
     personalEventCache: personalEventCache,
+    videoEventService: videoEventService,
   );
 }
 
@@ -392,20 +389,7 @@ CurationService curationService(Ref ref) {
   );
 }
 
-/// ExploreVideoManager - bridges CurationService with Riverpod VideoManager
-/// FIXED: Removed VideoManager dependency to break circular dependency
-@Riverpod(keepAlive: true)
-ExploreVideoManager exploreVideoManager(Ref ref) {
-  final curationService = ref.watch(curationServiceProvider);
-
-  // Create ExploreVideoManager without VideoManager to avoid circular dependency
-  // The VideoManager integration is now handled at the call site where needed
-  final manager = ExploreVideoManager(
-    curationService: curationService,
-  );
-
-  return manager;
-}
+// Legacy ExploreVideoManager removed - functionality replaced by pure Riverpod video providers
 
 /// Content reporting service for NIP-56 compliance
 @riverpod
@@ -483,4 +467,12 @@ Future<ContentDeletionService> contentDeletionService(Ref ref) async {
     nostrService: nostrService,
     prefs: prefs,
   );
+}
+
+/// Broken video tracker service for filtering non-functional videos
+@riverpod
+Future<BrokenVideoTracker> brokenVideoTracker(Ref ref) async {
+  final tracker = BrokenVideoTracker();
+  await tracker.initialize();
+  return tracker;
 }

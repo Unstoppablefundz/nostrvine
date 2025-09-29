@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:openvine/main.dart' as app;
 import 'package:openvine/services/vine_recording_controller.dart';
-import 'package:openvine/services/direct_upload_service.dart';
+import 'package:openvine/services/blossom_upload_service.dart';
 import 'package:openvine/services/video_thumbnail_service.dart';
 import 'package:openvine/utils/unified_logger.dart';
 
@@ -113,21 +113,15 @@ void main() {
             // Test upload structure (without actually uploading)
             Log.debug('\n📤 Testing upload structure...');
 
-            final uploadResult = DirectUploadResult.success(
+            final uploadResult = BlossomUploadResult(
+              success: true,
               videoId: 'real_test_video',
               cdnUrl: 'https://cdn.example.com/real_test_video.mp4',
-              thumbnailUrl: 'https://cdn.example.com/real_test_thumbnail.jpg',
-              metadata: {
-                'size': await videoFile.length(),
-                'type': 'video/mp4',
-                'thumbnail_size': thumbnailBytes.length,
-              },
             );
 
             Log.debug('✅ Upload result structure verified');
             Log.debug('🎬 Video URL: ${uploadResult.cdnUrl}');
-            Log.debug('🖼️ Thumbnail URL: ${uploadResult.thumbnailUrl}');
-            Log.debug('📊 Metadata: ${uploadResult.metadata}');
+            Log.debug('✅ Success status: ${uploadResult.success}');
           } else {
             Log.debug('❌ Thumbnail generation failed');
             Log.debug('ℹ️ This might be due to test environment limitations');
@@ -215,20 +209,19 @@ void main() {
           '✅ Upload metadata structure supports thumbnails: $testMetadata');
 
       // Test the upload result processing
-      final mockUploadResult = DirectUploadResult.success(
+      final mockUploadResult = BlossomUploadResult(
+        success: true,
         videoId: 'integration_test_video',
         cdnUrl: 'https://cdn.example.com/integration_test.mp4',
-        thumbnailUrl: 'https://cdn.example.com/integration_test_thumb.jpg',
-        metadata: testMetadata,
       );
 
       expect(mockUploadResult.success, isTrue);
-      expect(mockUploadResult.thumbnailUrl, isNotNull);
-      expect(mockUploadResult.thumbnailUrl, contains('thumb'));
+      expect(mockUploadResult.videoId, equals('integration_test_video'));
+      expect(mockUploadResult.cdnUrl, contains('integration_test.mp4'));
 
-      Log.debug('✅ DirectUploadResult correctly handles thumbnail URLs');
+      Log.debug('✅ BlossomUploadResult correctly handles video uploads');
       Log.debug(
-          '📸 Thumbnail URL format verified: ${mockUploadResult.thumbnailUrl}');
+          '📸 CDN URL format verified: ${mockUploadResult.cdnUrl}');
 
       Log.debug('🎉 UploadManager thumbnail integration test passed!');
     });

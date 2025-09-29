@@ -68,7 +68,7 @@ class _DebugVideoTestScreenState extends ConsumerState<DebugVideoTestScreen> {
               child: (_isPlaying && testVideo != null)
                   ? VideoFeedItem(
                       video: testVideo,
-                      isActive: true,
+                      index: 0, // Single test video
                     )
                   : const Center(
                       child: Column(

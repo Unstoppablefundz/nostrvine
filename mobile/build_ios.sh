@@ -46,7 +46,7 @@ cd ..
 echo "🚀 Building iOS app..."
 if [ "$1" = "release" ]; then
     echo "🏗️  Building Flutter iOS release..."
-    flutter build ios --release
+    flutter build ios --release 
     
     echo "📦 Creating Xcode archive..."
     cd ios
@@ -126,7 +126,7 @@ EOF
     
     cd ..
 elif [ "$1" = "debug" ]; then
-    flutter build ios --debug
+    flutter build ios --debug 
 else
     echo "Usage: $0 [debug|release] [--increment]"
     echo "  debug       - Build debug version"
@@ -138,7 +138,7 @@ else
     echo "  $0 release --increment  # Increment build number and build release"
     echo ""
     echo "Building in debug mode by default..."
-    flutter build ios --debug
+    flutter build ios --debug 
 fi
 
 echo "✅ iOS build complete!"

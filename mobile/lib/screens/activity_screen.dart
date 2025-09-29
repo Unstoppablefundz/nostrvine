@@ -6,7 +6,7 @@ import 'package:openvine/main.dart';
 import 'package:openvine/models/notification_model.dart';
 import 'package:openvine/models/user_profile.dart' as models;
 import 'package:openvine/models/video_event.dart';
-import 'package:openvine/screens/explore_video_screen.dart';
+import 'package:openvine/screens/pure/explore_video_screen_pure.dart';
 import 'package:openvine/widgets/user_avatar.dart';
 import 'package:openvine/services/video_event_service.dart';
 import 'package:openvine/theme/vine_theme.dart';
@@ -334,7 +334,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen>
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ExploreVideoScreen(
+        builder: (context) => ExploreVideoScreenPure(
           startingVideo: video,
           videoList: allVideos,
           contextTitle: 'Activity Video',

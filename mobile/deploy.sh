@@ -65,14 +65,14 @@ case $choice in
         echo -e "\n${YELLOW}Checking secrets...${NC}"
         echo "Have you set the following secrets? (y/n)"
         echo "- CLOUDFLARE_ACCOUNT_ID"
-        echo "- CLOUDFLARE_STREAM_TOKEN"
+        echo "- "
         echo "- STREAM_WEBHOOK_SECRET"
         read -p "Continue? (y/n): " confirm
         
         if [ "$confirm" != "y" ]; then
             echo -e "${RED}Please set secrets first:${NC}"
             echo "wrangler secret put CLOUDFLARE_ACCOUNT_ID --env production"
-            echo "wrangler secret put CLOUDFLARE_STREAM_TOKEN --env production"
+            echo "wrangler secret put  --env production"
             echo "wrangler secret put STREAM_WEBHOOK_SECRET --env production"
             exit 1
         fi

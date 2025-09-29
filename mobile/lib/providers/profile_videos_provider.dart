@@ -9,6 +9,7 @@ import 'package:openvine/models/video_event.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:openvine/constants/nip71_migration.dart';
 
 part 'profile_videos_provider.g.dart';
 
@@ -151,12 +152,12 @@ Future<List<VideoEvent>> profileVideos(Ref ref, String pubkey) async {
     // Fetch complete profile videos from network to augment cache
     final filter = Filter(
       authors: [pubkey],
-      kinds: [32222], // NIP-32222 addressable short videos
+      kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events
       limit: _profileVideosPageSize,
     );
 
     Log.info(
-        '📱 Querying for videos: authors=[${pubkey.substring(0, 16)}], kinds=[32222], limit=$_profileVideosPageSize',
+        '📱 Querying for videos: authors=[${pubkey.substring(0, 16)}], kinds=${NIP71VideoKinds.getAllVideoKinds()}, limit=$_profileVideosPageSize',
         name: 'ProfileVideosProvider',
         category: LogCategory.ui);
 
@@ -350,12 +351,12 @@ class ProfileVideosNotifier extends _$ProfileVideosNotifier {
 
     final filter = Filter(
       authors: [pubkey],
-      kinds: [32222], // NIP-32222 addressable short videos
+      kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events
       limit: _profileVideosPageSize,
     );
 
     Log.info(
-        '📱 Starting streaming query for videos: authors=[${pubkey.substring(0, 16)}], kinds=[32222], limit=$_profileVideosPageSize',
+        '📱 Starting streaming query for videos: authors=[${pubkey.substring(0, 16)}], kinds=${NIP71VideoKinds.getAllVideoKinds()}, limit=$_profileVideosPageSize',
         name: 'ProfileVideosProvider',
         category: LogCategory.ui);
 
@@ -427,7 +428,18 @@ class ProfileVideosNotifier extends _$ProfileVideosNotifier {
       },
     );
 
-    // Completion is driven by EOSE; no timer fallback
+    // Complete loading after reasonable timeout instead of waiting for EOSE
+    // This ensures newly published videos show up quickly even if not synced to embedded relay yet
+    Timer(const Duration(seconds: 3), () {
+      if (!completer.isCompleted) {
+        Log.info(
+            '📱 Streaming timeout reached: completing with ${receivedVideos.length} videos for ${pubkey.substring(0, 8)}',
+            name: 'ProfileVideosProvider',
+            category: LogCategory.ui);
+        _finalizeStreamingLoad(pubkey, receivedVideos);
+        completer.complete();
+      }
+    });
 
     await completer.future;
   }
@@ -510,7 +522,7 @@ class ProfileVideosNotifier extends _$ProfileVideosNotifier {
 
     final filter = Filter(
       authors: [_currentPubkey!],
-      kinds: [32222], // NIP-32222 addressable video events
+      kinds: NIP71VideoKinds.getAllVideoKinds(), // NIP-71 video events
       until: state.lastTimestamp! - 1, // Load older videos
       limit: _profileVideosPageSize,
     );
@@ -577,7 +589,17 @@ class ProfileVideosNotifier extends _$ProfileVideosNotifier {
       },
     );
 
-    // Completion is driven by EOSE; no timer fallback
+    // Complete load more after reasonable timeout instead of waiting for EOSE
+    Timer(const Duration(seconds: 3), () {
+      if (!completer.isCompleted) {
+        Log.info(
+            '📱 Load more timeout reached: completing with ${newVideos.length} additional videos for ${_currentPubkey!.substring(0, 8)}',
+            name: 'ProfileVideosProvider',
+            category: LogCategory.ui);
+        _finalizeLoadMoreStreaming(newVideos);
+        completer.complete();
+      }
+    });
 
     await completer.future;
   }

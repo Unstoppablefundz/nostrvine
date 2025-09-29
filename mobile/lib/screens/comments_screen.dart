@@ -84,7 +84,7 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
             // Video in background (paused)
             VideoFeedItem(
               video: widget.videoEvent,
-              isActive: false, // Keep video paused
+              index: 0, // Single video in comments screen
             ),
 
             // Comments overlay

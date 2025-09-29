@@ -15,11 +15,11 @@ import 'package:openvine/providers/user_profile_providers.dart';
 import 'package:openvine/services/curated_list_service.dart';
 import 'package:openvine/providers/social_providers.dart' as social_providers;
 import 'package:openvine/providers/tab_visibility_provider.dart';
-import 'package:openvine/providers/video_manager_providers.dart';
+import 'package:openvine/providers/individual_video_providers.dart';
 import 'package:openvine/screens/comments_screen.dart';
-import 'package:openvine/services/global_video_registry.dart';
+// Removed: global_video_registry no longer exists
 import 'package:openvine/screens/hashtag_feed_screen.dart';
-import 'package:openvine/screens/profile_screen.dart';
+// Removed: profile_screen.dart no longer exists
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/clickable_hashtag_text.dart';
@@ -43,17 +43,15 @@ enum TabContext { feed, explore }
 class VideoFeedItem extends ConsumerStatefulWidget {
   const VideoFeedItem({
     required this.video,
-    required this.isActive,
+    required this.index,
     super.key,
-    this.onVideoError,
-    this.tabContext = TabContext.feed,
-    this.forceInfoBelow = false,
+    this.onTap,
+    this.forceShowOverlay = false,
   });
   final VideoEvent video;
-  final bool isActive;
-  final Function(String)? onVideoError;
-  final TabContext tabContext;
-  final bool forceInfoBelow;
+  final int index;
+  final VoidCallback? onTap;
+  final bool forceShowOverlay;
 
   @override
   ConsumerState<VideoFeedItem> createState() => _VideoFeedItemState();
@@ -71,6 +69,12 @@ class _VideoFeedItemState extends ConsumerState<VideoFeedItem>
   bool _isCheckingReadiness = false;
   bool _hasScheduledPostFrameCallback = false;
 
+  /// Helper method to check if this video is currently active
+  bool get _isActive {
+    final activeVideoId = ref.read(activeVideoProvider);
+    return activeVideoId == widget.video.id;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +88,7 @@ class _VideoFeedItemState extends ConsumerState<VideoFeedItem>
     // _checkVideoReactions();
 
     // Handle initial activation state
-    if (widget.isActive) {
+    if (_isActive) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _handleActivationChange();
@@ -108,10 +112,10 @@ class _VideoFeedItemState extends ConsumerState<VideoFeedItem>
     }
 
     // Handle activation state changes OR video changes
-    if (widget.isActive != oldWidget.isActive ||
+    if (_isActive != (ref.read(activeVideoProvider) == oldWidget.video.id) ||
         widget.video.id != oldWidget.video.id) {
       Log.info(
-          '📱 Widget updated: isActive changed: ${widget.isActive != oldWidget.isActive}, video changed: ${widget.video.id != oldWidget.video.id}',
+          '📱 Widget updated: isActive changed: ${_isActive != (ref.read(activeVideoProvider) == oldWidget.video.id)}, video changed: ${widget.video.id != oldWidget.video.id}',
           name: 'VideoFeedItem',
           category: LogCategory.ui);
       _handleActivationChange();
@@ -130,11 +134,15 @@ class _VideoFeedItemState extends ConsumerState<VideoFeedItem>
   void _initializeVideoManager() {
     // Trigger preload if video is active
     // Delay to avoid modifying provider during widget build phase
-    if (widget.isActive) {
+    if (_isActive) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         try {
-          ref.read(videoManagerProvider.notifier).preloadVideo(widget.video.id);
+          // With individual video providers, preloading happens automatically when controller is accessed
+          Log.info(
+              'VideoFeedItem: Individual video controller will handle preloading: ${widget.video.id}',
+              name: 'VideoFeedItem',
+              category: LogCategory.ui);
         } catch (e) {
           Log.info(
               'VideoFeedItem: Video not ready for preload yet: ${widget.video.id}',

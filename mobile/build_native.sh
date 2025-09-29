@@ -74,7 +74,7 @@ build_ios() {
     
     # Build the iOS app
     echo "🚀 Building iOS app ($BUILD_TYPE)..."
-    flutter build ios --$BUILD_TYPE
+    flutter build ios --$BUILD_TYPE 
     
     echo "✅ iOS build complete!"
 }
@@ -102,9 +102,9 @@ build_macos() {
     
     cd ..
     
-    # Build the macOS app  
+    # Build the macOS app
     echo "🚀 Building macOS app ($BUILD_TYPE)..."
-    flutter build macos --$BUILD_TYPE
+    flutter build macos --$BUILD_TYPE 
     
     echo "✅ macOS build complete!"
 }

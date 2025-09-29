@@ -211,6 +211,7 @@ void main() {
       final videoEvent = VideoEvent.fromNostrEvent(event);
 
       // The addressable reference should be in format: kind:pubkey:d-tag
+      // ignore: unused_local_variable
       final addressableRef = '32222:${event.pubkey}:my-video-id';
 
       // This might need to be added to VideoEvent model

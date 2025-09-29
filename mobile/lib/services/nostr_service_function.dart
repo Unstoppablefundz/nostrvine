@@ -7,6 +7,7 @@ import 'dart:collection';
 
 import 'package:flutter_embedded_nostr_relay/flutter_embedded_nostr_relay.dart'
     as embedded;
+import 'package:logging/logging.dart' as logging;
 import 'package:nostr_sdk/event.dart';
 import 'package:nostr_sdk/filter.dart' as nostr;
 import 'package:openvine/models/nip94_metadata.dart';
@@ -87,6 +88,7 @@ class NostrServiceFunction implements INostrService {
           .logInitializationStep('Creating embedded relay with function channel');
 
       await _embeddedRelay!.initialize(
+        logLevel: logging.Level.INFO, // Temporary: restore INFO to debug startup issue
         enableGarbageCollection: true,
         useFunctionChannel: true, // Enable function channel instead of WebSocket
       );

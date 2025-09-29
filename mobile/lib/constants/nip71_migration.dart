@@ -1,0 +1,56 @@
+// ABOUTME: Constants and migration utilities for transitioning from Kind 32222 to NIP-71 compliant video kinds
+// ABOUTME: Handles backward compatibility during the migration from legacy video events to NIP-71 standard
+
+/// NIP-71 compliant video event kinds
+class NIP71VideoKinds {
+  // NIP-71 Standard kinds for video events
+  static const int shortVideo = 22; // Short videos (Vine-like content)
+  static const int normalVideo = 21; // Normal videos (longer content)
+  static const int addressableShortVideo = 34236; // Addressable short videos
+  static const int addressableNormalVideo = 34235; // Addressable normal videos
+
+  // Repost kinds (unchanged)
+  static const int repost = 6; // NIP-18 reposts
+
+  /// Get all NIP-71 video kinds
+  static List<int> getAllVideoKinds() {
+    return [
+      shortVideo,
+      normalVideo,
+      addressableShortVideo,
+      addressableNormalVideo,
+    ];
+  }
+
+  /// Get primary kinds for new video events (post-migration)
+  static List<int> getPrimaryVideoKinds() {
+    return [
+      shortVideo, // Primary for Vine-like content
+      addressableShortVideo, // Primary for addressable Vine content
+    ];
+  }
+
+  /// Check if a kind is a video event
+  static bool isVideoKind(int kind) {
+    return getAllVideoKinds().contains(kind);
+  }
+
+  /// Get the preferred addressable kind for new events
+  static int getPreferredAddressableKind() {
+    return addressableShortVideo; // Kind 34236 for addressable short videos
+  }
+
+  /// Get the preferred non-addressable kind for new events
+  static int getPreferredKind() {
+    return shortVideo; // Kind 22 for regular short videos
+  }
+}
+
+/// NIP-71 video event configuration
+class VideoEventConfig {
+  /// Application uses NIP-71 kinds exclusively
+  static const bool useNIP71Only = true;
+
+  /// Implementation phase indicator
+  static const String implementationPhase = "nip71_compliant";
+}
