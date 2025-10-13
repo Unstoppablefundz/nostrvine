@@ -128,6 +128,7 @@ class MockBlossomUploadService extends _i1.Mock
     required String? title,
     String? description,
     List<String>? hashtags,
+    String? proofManifestJson,
     void Function(double)? onProgress,
   }) =>
       (super.noSuchMethod(
@@ -137,6 +138,7 @@ class MockBlossomUploadService extends _i1.Mock
               #title: title,
               #description: description,
               #hashtags: hashtags,
+              #proofManifestJson: proofManifestJson,
               #onProgress: onProgress,
             }),
             returnValue: _i6.Future<_i5.BlossomUploadResult>.value(
@@ -148,6 +150,7 @@ class MockBlossomUploadService extends _i1.Mock
                   #title: title,
                   #description: description,
                   #hashtags: hashtags,
+                  #proofManifestJson: proofManifestJson,
                   #onProgress: onProgress,
                 }),
               ),

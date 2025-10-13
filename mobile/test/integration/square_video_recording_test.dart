@@ -25,14 +25,14 @@ void main() {
       await Future.delayed(const Duration(seconds: 2));
       await controller.stopRecording();
 
-      final result = await controller.finishRecording();
+      final (videoFile, _) = await controller.finishRecording();
 
       // Assert - Video should exist and be square
-      expect(result, isNotNull, reason: 'Recording should produce a video file');
-      expect(result!.existsSync(), isTrue, reason: 'Video file should exist');
+      expect(videoFile, isNotNull, reason: 'Recording should produce a video file');
+      expect(videoFile!.existsSync(), isTrue, reason: 'Video file should exist');
 
       // Check video dimensions using video_player
-      final videoController = VideoPlayerController.file(result);
+      final videoController = VideoPlayerController.file(videoFile);
       await videoController.initialize();
 
       final size = videoController.value.size;
@@ -47,7 +47,7 @@ void main() {
 
       // Cleanup
       await videoController.dispose();
-      await result.delete();
+      await videoFile.delete();
     });
 
 
@@ -68,13 +68,13 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 500));
       await controller.stopRecording();
 
-      final result = await controller.finishRecording();
+      final (videoFile, _) = await controller.finishRecording();
 
       // Assert
-      expect(result, isNotNull);
-      expect(result!.existsSync(), isTrue);
+      expect(videoFile, isNotNull);
+      expect(videoFile!.existsSync(), isTrue);
 
-      final videoController = VideoPlayerController.file(result);
+      final videoController = VideoPlayerController.file(videoFile);
       await videoController.initialize();
 
       final size = videoController.value.size;
@@ -88,7 +88,7 @@ void main() {
 
       // Cleanup
       await videoController.dispose();
-      await result.delete();
+      await videoFile.delete();
     });
 
     test('video metadata should report square dimensions', () async {
@@ -103,12 +103,12 @@ void main() {
       await controller.startRecording();
       await Future.delayed(const Duration(seconds: 1));
       await controller.stopRecording();
-      final result = await controller.finishRecording();
+      final (videoFile, _) = await controller.finishRecording();
 
       // Assert
-      expect(result, isNotNull);
+      expect(videoFile, isNotNull);
 
-      final videoController = VideoPlayerController.file(result!);
+      final videoController = VideoPlayerController.file(videoFile!);
       await videoController.initialize();
 
       final width = videoController.value.size.width;
@@ -122,7 +122,7 @@ void main() {
 
       // Cleanup
       await videoController.dispose();
-      await result.delete();
+      await videoFile.delete();
     });
   });
 }

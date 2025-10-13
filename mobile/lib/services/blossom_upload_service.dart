@@ -132,16 +132,19 @@ class BlossomUploadService {
   }
 
   /// Upload a video file to the configured Blossom server
-  /// 
+  ///
   /// This method currently returns a placeholder implementation.
   /// The actual Blossom upload will be implemented using the SDK's
   /// BolssomUploader when the Nostr service integration is ready.
+  ///
+  /// [proofManifestJson] - Optional ProofMode manifest JSON string for cryptographic proof
   Future<BlossomUploadResult> uploadVideo({
     required File videoFile,
     required String nostrPubkey,
     required String title,
     String? description,
     List<String>? hashtags,
+    String? proofManifestJson,
     void Function(double)? onProgress,
   }) async {
     try {
@@ -234,6 +237,17 @@ class BlossomUploadService {
       final authEventJson = jsonEncode(authEvent.toJson());
       final authHeader = 'Nostr ${base64.encode(utf8.encode(authEventJson))}';
 
+      // Add ProofMode headers if manifest is provided
+      final headers = {
+        'Authorization': authHeader,
+        'Content-Type': 'video/mp4',
+        'Content-Length': '$fileSize',
+      };
+
+      if (proofManifestJson != null && proofManifestJson.isNotEmpty) {
+        _addProofModeHeaders(headers, proofManifestJson);
+      }
+
       Log.info('Sending PUT request with raw video bytes',
           name: 'BlossomUploadService', category: LogCategory.video);
       Log.info('  URL: $serverUrl/upload',
@@ -246,11 +260,7 @@ class BlossomUploadService {
         '$serverUrl/upload',
         data: Stream.fromIterable(fileBytes.map((e) => [e])),
         options: Options(
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'video/mp4',
-            'Content-Length': '$fileSize',
-          },
+          headers: headers,
           validateStatus: (status) => status != null && status < 500,
         ),
         onSendProgress: (sent, total) {
@@ -463,7 +473,9 @@ class BlossomUploadService {
         Log.info('✅ Image already exists on server (hash: $fileHash)',
             name: 'BlossomUploadService', category: LogCategory.video);
 
-        final existingUrl = 'https://cdn.divine.video/$fileHash';
+        // Add appropriate file extension based on MIME type
+        final extension = _getFileExtensionFromMimeType(mimeType);
+        final existingUrl = 'https://cdn.divine.video/$fileHash$extension';
         onProgress?.call(1.0);
 
         return BlossomUploadResult(
@@ -534,6 +546,62 @@ class BlossomUploadService {
         success: false,
         errorMessage: 'Image upload failed: $e',
       );
+    }
+  }
+
+  /// Get file extension from MIME type
+  String _getFileExtensionFromMimeType(String mimeType) {
+    switch (mimeType.toLowerCase()) {
+      case 'image/jpeg':
+      case 'image/jpg':
+        return '.jpg';
+      case 'image/png':
+        return '.png';
+      case 'image/gif':
+        return '.gif';
+      case 'image/webp':
+        return '.webp';
+      case 'video/mp4':
+        return '.mp4';
+      case 'video/webm':
+        return '.webm';
+      default:
+        // Default to no extension for unknown types
+        return '';
+    }
+  }
+
+  /// Add ProofMode headers to upload request
+  ///
+  /// Generates X-ProofMode-Manifest, X-ProofMode-Signature, and X-ProofMode-Attestation
+  /// headers from the provided ProofManifest JSON.
+  void _addProofModeHeaders(Map<String, dynamic> headers, String proofManifestJson) {
+    try {
+      final manifestMap = jsonDecode(proofManifestJson) as Map<String, dynamic>;
+
+      // Base64 encode the full manifest
+      headers['X-ProofMode-Manifest'] = base64.encode(utf8.encode(proofManifestJson));
+
+      // Extract and encode signature if present
+      if (manifestMap['pgpSignature'] != null) {
+        final signature = manifestMap['pgpSignature'] as Map<String, dynamic>;
+        final signatureJson = jsonEncode(signature);
+        headers['X-ProofMode-Signature'] = base64.encode(utf8.encode(signatureJson));
+      }
+
+      // Extract and encode attestation if present
+      if (manifestMap['deviceAttestation'] != null) {
+        final attestation = manifestMap['deviceAttestation'] as Map<String, dynamic>;
+        final attestationJson = jsonEncode(attestation);
+        headers['X-ProofMode-Attestation'] = base64.encode(utf8.encode(attestationJson));
+      }
+
+      Log.info('Added ProofMode headers to upload',
+          name: 'BlossomUploadService', category: LogCategory.video);
+    } catch (e) {
+      Log.error('Failed to add ProofMode headers: $e',
+          name: 'BlossomUploadService', category: LogCategory.video);
+      // Don't fail the upload if ProofMode headers can't be added
     }
   }
 }

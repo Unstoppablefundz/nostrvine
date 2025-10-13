@@ -2,6 +2,7 @@
 // ABOUTME: Handles upload queue, retries, and coordination between UI and Blossom upload service
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -10,6 +11,7 @@ import 'package:openvine/models/pending_upload.dart';
 import 'package:openvine/services/circuit_breaker_service.dart';
 import 'package:openvine/services/blossom_upload_service.dart';
 import 'package:openvine/services/crash_reporting_service.dart';
+import 'package:openvine/services/proofmode_session_service.dart' show ProofManifest;
 import 'package:openvine/services/upload_initialization_helper.dart';
 import 'package:openvine/utils/async_utils.dart';
 import 'package:openvine/utils/unified_logger.dart';
@@ -233,6 +235,7 @@ class UploadManager {
     int? videoWidth,
     int? videoHeight,
     Duration? videoDuration,
+    ProofManifest? proofManifest,
   }) async {
     Log.info('🚀 === STARTING UPLOAD ===',
         name: 'UploadManager', category: LogCategory.video);
@@ -293,6 +296,20 @@ class UploadManager {
     // Create pending upload record
     Log.info('📦 Creating PendingUpload record...',
         name: 'UploadManager', category: LogCategory.video);
+
+    // Convert ProofManifest to JSON if present
+    String? proofManifestJson;
+    if (proofManifest != null) {
+      try {
+        proofManifestJson = jsonEncode(proofManifest.toJson());
+        Log.info('📜 ProofManifest attached to upload',
+            name: 'UploadManager', category: LogCategory.video);
+      } catch (e) {
+        Log.error('Failed to serialize ProofManifest: $e',
+            name: 'UploadManager', category: LogCategory.video);
+      }
+    }
+
     final upload = PendingUpload.create(
       localVideoPath: videoFile.path,
       nostrPubkey: nostrPubkey,
@@ -303,6 +320,7 @@ class UploadManager {
       videoWidth: videoWidth,
       videoHeight: videoHeight,
       videoDuration: videoDuration,
+      proofManifestJson: proofManifestJson,
     );
     Log.info('✅ Created upload with ID: ${upload.id}',
         name: 'UploadManager', category: LogCategory.video);

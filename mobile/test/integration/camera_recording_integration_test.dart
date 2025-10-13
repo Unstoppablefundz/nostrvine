@@ -68,7 +68,7 @@ void main() {
             lessThanOrEqualTo(3500)); // Allow some variance
 
         // Finish recording
-        final videoFile = await controller.finishRecording();
+        final (videoFile, _) = await controller.finishRecording();
 
         expect(videoFile, isNotNull);
         expect(videoFile!.existsSync(), isTrue);

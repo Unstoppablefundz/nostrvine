@@ -162,7 +162,7 @@ void main() {
       await controller.stopRecording();
 
       // finishRecording should handle non-existent file gracefully
-      final videoFile = await controller.finishRecording();
+      final (videoFile, _) = await controller.finishRecording();
 
       // For macOS single recording mode, it might still return a path
       // but the file won't exist

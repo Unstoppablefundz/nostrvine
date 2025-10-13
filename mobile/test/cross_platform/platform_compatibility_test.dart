@@ -64,7 +64,7 @@ void main() {
         await Future.delayed(Duration(milliseconds: 500));
         await controller.stopRecording();
 
-        final videoFile = await controller.finishRecording();
+        final (videoFile, _) = await controller.finishRecording();
 
         if (videoFile != null) {
           final extension = videoFile.path.split('.').last.toLowerCase();

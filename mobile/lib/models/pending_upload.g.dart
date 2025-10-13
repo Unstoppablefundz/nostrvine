@@ -37,13 +37,14 @@ class PendingUploadAdapter extends TypeAdapter<PendingUpload> {
       videoWidth: (fields[17] as num?)?.toInt(),
       videoHeight: (fields[18] as num?)?.toInt(),
       videoDurationMillis: (fields[19] as num?)?.toInt(),
+      proofManifestJson: fields[20] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, PendingUpload obj) {
     writer
-      ..writeByte(20)
+      ..writeByte(21)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -83,7 +84,9 @@ class PendingUploadAdapter extends TypeAdapter<PendingUpload> {
       ..writeByte(18)
       ..write(obj.videoHeight)
       ..writeByte(19)
-      ..write(obj.videoDurationMillis);
+      ..write(obj.videoDurationMillis)
+      ..writeByte(20)
+      ..write(obj.proofManifestJson);
   }
 
   @override

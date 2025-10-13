@@ -823,11 +823,12 @@ class _UniversalCameraScreenPureState extends ConsumerState<UniversalCameraScree
       final notifier = ref.read(vineRecordingProvider.notifier);
       Log.info('📹 Finishing recording and concatenating segments', category: LogCategory.video);
 
-      final result = await notifier.finishRecording();
-      Log.info('📹 Recording finished, result: ${result?.path}', category: LogCategory.video);
+      final (videoFile, proofManifest) = await notifier.finishRecording();
+      Log.info('📹 Recording finished, video: ${videoFile?.path}, proof: ${proofManifest != null}',
+          category: LogCategory.video);
 
-      if (result != null && mounted) {
-        _processRecording(result);
+      if (videoFile != null && mounted) {
+        _processRecording(videoFile, proofManifest);
       } else {
         Log.warning('📹 No file returned from finishRecording', category: LogCategory.video);
       }
@@ -913,7 +914,7 @@ class _UniversalCameraScreenPureState extends ConsumerState<UniversalCameraScree
     Log.info('📹 Timer duration changed to: $_timerDuration', category: LogCategory.video);
   }
 
-  void _processRecording(File recordedFile) async {
+  void _processRecording(File recordedFile, proofManifest) async {
     // Guard against double-processing
     if (_isProcessing) {
       Log.warning('📹 Already processing a recording, ignoring duplicate call',
@@ -939,6 +940,7 @@ class _UniversalCameraScreenPureState extends ConsumerState<UniversalCameraScree
             builder: (context) => VideoMetadataScreenPure(
               videoFile: recordedFile,
               duration: duration,
+              proofManifest: proofManifest,
             ),
           ),
         );

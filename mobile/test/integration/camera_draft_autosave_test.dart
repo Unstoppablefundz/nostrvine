@@ -231,7 +231,7 @@ void main() {
           );
 
           // Verify finishRecording works correctly
-          final videoFile = await controller.finishRecording();
+          final (videoFile, _) = await controller.finishRecording();
           expect(videoFile, isNotNull);
           expect(videoFile!.existsSync(), isTrue);
         } finally {

@@ -16,9 +16,11 @@ import 'package:openvine/services/camera/native_macos_camera.dart';
 import 'package:openvine/services/camera/enhanced_mobile_camera_interface.dart';
 import 'package:openvine/services/web_camera_service_stub.dart'
     if (dart.library.html) 'web_camera_service.dart' as camera_service;
+import 'package:openvine/services/proofmode_session_service.dart';
 import 'package:openvine/utils/async_utils.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/macos_camera_preview.dart';
+import 'package:crypto/crypto.dart';
 
 /// Represents a single recording segment in the Vine-style recording
 /// REFACTORED: Removed ChangeNotifier - now uses pure state management via Riverpod
@@ -716,7 +718,13 @@ class VineRecordingController {
   static const Duration minSegmentDuration = Duration(milliseconds: 100);
 
   CameraPlatformInterface? _cameraInterface;
+  ProofModeSessionService? _proofModeSession;
+  String? _currentProofSessionId;
   VineRecordingState _state = VineRecordingState.idle;
+
+  /// Constructor with optional ProofMode integration
+  VineRecordingController({ProofModeSessionService? proofModeSession})
+      : _proofModeSession = proofModeSession;
 
   // Getter for camera interface (needed for enhanced controls)
   CameraPlatformInterface? get cameraInterface => _cameraInterface;
@@ -917,6 +925,30 @@ class VineRecordingController {
       _setState(VineRecordingState.recording);
       _currentSegmentStartTime = DateTime.now();
 
+      // Start ProofMode session on first segment
+      if (_proofModeSession != null && _currentProofSessionId == null) {
+        try {
+          _currentProofSessionId = await _proofModeSession!.startSession();
+          if (_currentProofSessionId != null) {
+            await _proofModeSession!.startRecordingSegment();
+            Log.info('Started ProofMode session: $_currentProofSessionId',
+                name: 'VineRecordingController', category: LogCategory.system);
+          }
+        } catch (e) {
+          Log.error('ProofMode session start failed (continuing without ProofMode): $e',
+              name: 'VineRecordingController', category: LogCategory.system);
+          // Continue recording even if ProofMode fails
+        }
+      } else if (_proofModeSession != null && _currentProofSessionId != null) {
+        // Resume recording segment for subsequent segments
+        try {
+          await _proofModeSession!.startRecordingSegment();
+        } catch (e) {
+          Log.error('ProofMode segment start failed (continuing): $e',
+              name: 'VineRecordingController', category: LogCategory.system);
+        }
+      }
+
       // Normal segmented recording for all platforms
       final segmentPath = _generateSegmentPath();
       await _cameraInterface!.startRecordingSegment(segmentPath);
@@ -1017,6 +1049,16 @@ class VineRecordingController {
             Log.warning('No file path returned from camera interface',
                 name: 'VineRecordingController', category: LogCategory.system);
           }
+        }
+      }
+
+      // Stop ProofMode segment if active
+      if (_proofModeSession != null && _currentProofSessionId != null) {
+        try {
+          await _proofModeSession!.stopRecordingSegment();
+        } catch (e) {
+          Log.error('ProofMode segment stop failed (continuing): $e',
+              name: 'VineRecordingController', category: LogCategory.system);
         }
       }
 
@@ -1172,8 +1214,15 @@ class VineRecordingController {
     }
   }
 
-  /// Finish recording and return the final compiled video
-  Future<File?> finishRecording() async {
+  /// Calculate SHA256 hash of a video file
+  Future<String> _calculateSHA256(File file) async {
+    final bytes = await file.readAsBytes();
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
+  /// Finish recording and return the final compiled video with optional ProofManifest
+  Future<(File?, ProofManifest?)> finishRecording() async {
     try {
       _setState(VineRecordingState.processing);
 
@@ -1200,7 +1249,22 @@ class VineRecordingController {
                   _setState(VineRecordingState.completed);
                   macOSInterface.isSingleRecordingMode =
                       false; // Clear flag after successful completion
-                  return file;
+
+                  // Finalize ProofMode if active
+                  ProofManifest? manifest;
+                  if (_proofModeSession != null && _currentProofSessionId != null) {
+                    try {
+                      final videoHash = await _calculateSHA256(file);
+                      manifest = await _proofModeSession!.finalizeSession(videoHash);
+                      Log.info('ProofMode session finalized with hash: $videoHash',
+                          name: 'VineRecordingController', category: LogCategory.system);
+                    } catch (e) {
+                      Log.error('ProofMode finalization failed: $e',
+                          name: 'VineRecordingController', category: LogCategory.system);
+                    }
+                  }
+
+                  return (file, manifest);
                 }
               }
             } catch (e) {
@@ -1226,7 +1290,22 @@ class VineRecordingController {
               _setState(VineRecordingState.completed);
               macOSInterface.isSingleRecordingMode =
                   false; // Clear flag after successful completion
-              return file;
+
+              // Finalize ProofMode if active
+              ProofManifest? manifest;
+              if (_proofModeSession != null && _currentProofSessionId != null) {
+                try {
+                  final videoHash = await _calculateSHA256(file);
+                  manifest = await _proofModeSession!.finalizeSession(videoHash);
+                  Log.info('ProofMode session finalized with hash: $videoHash',
+                      name: 'VineRecordingController', category: LogCategory.system);
+                } catch (e) {
+                  Log.error('ProofMode finalization failed: $e',
+                      name: 'VineRecordingController', category: LogCategory.system);
+                }
+              }
+
+              return (file, manifest);
             }
           }
 
@@ -1246,7 +1325,22 @@ class VineRecordingController {
                   category: LogCategory.system);
               if (exists) {
                 _setState(VineRecordingState.completed);
-                return file;
+
+                // Finalize ProofMode if active
+                ProofManifest? manifest;
+                if (_proofModeSession != null && _currentProofSessionId != null) {
+                  try {
+                    final videoHash = await _calculateSHA256(file);
+                    manifest = await _proofModeSession!.finalizeSession(videoHash);
+                    Log.info('ProofMode session finalized with hash: $videoHash',
+                        name: 'VineRecordingController', category: LogCategory.system);
+                  } catch (e) {
+                    Log.error('ProofMode finalization failed: $e',
+                        name: 'VineRecordingController', category: LogCategory.system);
+                  }
+                }
+
+                return (file, manifest);
               }
             }
           }
@@ -1309,7 +1403,22 @@ class VineRecordingController {
               await tempFile.writeAsBytes(bytes);
 
               _setState(VineRecordingState.completed);
-              return tempFile;
+
+              // Finalize ProofMode if active
+              ProofManifest? manifest;
+              if (_proofModeSession != null && _currentProofSessionId != null) {
+                try {
+                  final videoHash = await _calculateSHA256(tempFile);
+                  manifest = await _proofModeSession!.finalizeSession(videoHash);
+                  Log.info('ProofMode session finalized with hash: $videoHash',
+                      name: 'VineRecordingController', category: LogCategory.system);
+                } catch (e) {
+                  Log.error('ProofMode finalization failed: $e',
+                      name: 'VineRecordingController', category: LogCategory.system);
+                }
+              }
+
+              return (tempFile, manifest);
             }
           } catch (e) {
             Log.error('Failed to convert blob to file: $e',
@@ -1325,7 +1434,22 @@ class VineRecordingController {
         final file = File(_segments.first.filePath!);
         if (await file.exists()) {
           _setState(VineRecordingState.completed);
-          return file;
+
+          // Finalize ProofMode if active
+          ProofManifest? manifest;
+          if (_proofModeSession != null && _currentProofSessionId != null) {
+            try {
+              final videoHash = await _calculateSHA256(file);
+              manifest = await _proofModeSession!.finalizeSession(videoHash);
+              Log.info('ProofMode session finalized with hash: $videoHash',
+                  name: 'VineRecordingController', category: LogCategory.system);
+            } catch (e) {
+              Log.error('ProofMode finalization failed: $e',
+                  name: 'VineRecordingController', category: LogCategory.system);
+            }
+          }
+
+          return (file, manifest);
         }
       }
 
@@ -1337,7 +1461,22 @@ class VineRecordingController {
         final concatenatedFile = await _concatenateSegments(_segments);
         if (concatenatedFile != null) {
           _setState(VineRecordingState.completed);
-          return concatenatedFile;
+
+          // Finalize ProofMode if active
+          ProofManifest? manifest;
+          if (_proofModeSession != null && _currentProofSessionId != null) {
+            try {
+              final videoHash = await _calculateSHA256(concatenatedFile);
+              manifest = await _proofModeSession!.finalizeSession(videoHash);
+              Log.info('ProofMode session finalized with hash: $videoHash',
+                  name: 'VineRecordingController', category: LogCategory.system);
+            } catch (e) {
+              Log.error('ProofMode finalization failed: $e',
+                  name: 'VineRecordingController', category: LogCategory.system);
+            }
+          }
+
+          return (concatenatedFile, manifest);
         }
       }
 

@@ -1,8 +1,11 @@
 // ABOUTME: Model for tracking video uploads to Cloudinary in various states
 // ABOUTME: Supports local persistence and state management for async upload flow
 
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:hive_ce/hive.dart';
+import 'package:openvine/services/proofmode_session_service.dart';
+import 'package:openvine/utils/unified_logger.dart';
 
 part 'pending_upload.g.dart';
 
@@ -58,6 +61,7 @@ class PendingUpload {
     this.videoWidth,
     this.videoHeight,
     this.videoDurationMillis,
+    this.proofManifestJson,
   });
 
   /// Create a new pending upload
@@ -71,6 +75,7 @@ class PendingUpload {
     int? videoWidth,
     int? videoHeight,
     Duration? videoDuration,
+    String? proofManifestJson,
   }) =>
       PendingUpload(
         id: '${DateTime.now().microsecondsSinceEpoch}_${math.Random().nextInt(999999)}',
@@ -85,6 +90,7 @@ class PendingUpload {
         videoWidth: videoWidth,
         videoHeight: videoHeight,
         videoDurationMillis: videoDuration?.inMilliseconds,
+        proofManifestJson: proofManifestJson,
       );
   @HiveField(0)
   final String id;
@@ -146,10 +152,28 @@ class PendingUpload {
   @HiveField(19)
   final int? videoDurationMillis; // Store as milliseconds for Hive
 
+  @HiveField(20)
+  final String? proofManifestJson; // Serialized ProofManifest
+
   /// Get video duration as Duration object
   Duration? get videoDuration => videoDurationMillis != null
       ? Duration(milliseconds: videoDurationMillis!)
       : null;
+
+  /// Check if this upload has ProofMode data
+  bool get hasProofMode => proofManifestJson != null;
+
+  /// Get deserialized ProofManifest (null if not present or invalid JSON)
+  ProofManifest? get proofManifest {
+    if (proofManifestJson == null) return null;
+    try {
+      return ProofManifest.fromJson(jsonDecode(proofManifestJson!));
+    } catch (e) {
+      Log.error('Failed to parse ProofManifest: $e',
+          name: 'PendingUpload', category: LogCategory.system);
+      return null;
+    }
+  }
 
   /// Copy with updated fields
   PendingUpload copyWith({
@@ -173,6 +197,7 @@ class PendingUpload {
     int? videoWidth,
     int? videoHeight,
     Duration? videoDuration,
+    String? proofManifestJson,
   }) =>
       PendingUpload(
         id: id ?? this.id,
@@ -196,6 +221,7 @@ class PendingUpload {
         videoHeight: videoHeight ?? this.videoHeight,
         videoDurationMillis:
             (videoDuration ?? this.videoDuration)?.inMilliseconds,
+        proofManifestJson: proofManifestJson ?? this.proofManifestJson,
       );
 
   /// Check if the upload is in a terminal state

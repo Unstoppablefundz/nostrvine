@@ -6,7 +6,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:riverpod/riverpod.dart' show Ref;
-import 'package:openvine/services/vine_recording_controller.dart';
+import 'package:openvine/services/vine_recording_controller.dart'
+    show VineRecordingController, VineRecordingState, RecordingSegment, MacOSCameraInterface;
+import 'package:openvine/services/proofmode_session_service.dart'
+    show ProofManifest;
 import 'package:openvine/models/vine_draft.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/utils/unified_logger.dart';
@@ -105,14 +108,14 @@ class VineRecordingNotifier extends StateNotifier<VineRecordingUIState> {
     updateState();
   }
 
-  Future<File?> stopRecording() async {
+  Future<(File?, ProofManifest?)> stopRecording() async {
     await _controller.stopRecording();
     final result = await _controller.finishRecording();
     updateState();
     return result;
   }
 
-  Future<File?> finishRecording() async {
+  Future<(File?, ProofManifest?)> finishRecording() async {
     final result = await _controller.finishRecording();
     updateState();
     return result;

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:video_player/video_player.dart';
 import 'package:openvine/providers/app_providers.dart';
+import 'package:openvine/services/proofmode_session_service.dart' show ProofManifest;
 
 /// Pure video metadata screen using revolutionary single-controller Riverpod architecture
 class VideoMetadataScreenPure extends ConsumerStatefulWidget {
@@ -14,10 +15,12 @@ class VideoMetadataScreenPure extends ConsumerStatefulWidget {
     super.key,
     required this.videoFile,
     required this.duration,
+    this.proofManifest,
   });
 
   final File videoFile;
   final Duration duration;
+  final ProofManifest? proofManifest;
 
   @override
   ConsumerState<VideoMetadataScreenPure> createState() => _VideoMetadataScreenPureState();
@@ -502,6 +505,7 @@ class _VideoMetadataScreenPureState extends ConsumerState<VideoMetadataScreenPur
             : _descriptionController.text.trim(),
         hashtags: _hashtags.isEmpty ? null : _hashtags,
         videoDuration: widget.duration,
+        proofManifest: widget.proofManifest,
       );
 
       Log.info('📝 Upload started, ID: ${pendingUpload.id}',

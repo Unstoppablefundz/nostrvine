@@ -79,13 +79,14 @@ void main() {
           Log.debug('✅ Recording stopped');
 
           // Finish recording to get the video file
-          final videoFile = await recordingController.finishRecording();
+          final (videoFile, proofManifest) = await recordingController.finishRecording();
           if (videoFile == null) {
             throw Exception('No video file produced');
           }
 
           Log.debug('📹 Video file: ${videoFile.path}');
           Log.debug('📦 File size: ${await videoFile.length()} bytes');
+          Log.debug('📜 ProofMode available: ${proofManifest != null}');
 
           // Test thumbnail generation
           Log.debug('\n🖼️ Testing thumbnail generation...');

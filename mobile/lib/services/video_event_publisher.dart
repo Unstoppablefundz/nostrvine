@@ -17,6 +17,7 @@ import 'package:openvine/services/upload_manager.dart';
 import 'package:openvine/services/video_event_service.dart';
 import 'package:openvine/services/video_thumbnail_service.dart';
 import 'package:openvine/utils/unified_logger.dart';
+import 'package:openvine/utils/proofmode_publishing_helpers.dart';
 import 'package:openvine/constants/nip71_migration.dart';
 
 /// Service for publishing processed videos to Nostr relays
@@ -328,6 +329,52 @@ class VideoEventPublisher {
       // Add expiration tag if specified
       if (expirationTimestamp != null) {
         tags.add(['expiration', expirationTimestamp.toString()]);
+      }
+
+      // Add ProofMode tags if manifest exists
+      if (upload.hasProofMode) {
+        try {
+          final manifest = upload.proofManifest;
+          if (manifest != null) {
+            Log.info('📜 Adding ProofMode verification tags to Nostr event',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+
+            // Add verification level tag
+            final verificationLevel = getVerificationLevel(manifest);
+            tags.add(['verification', verificationLevel]);
+            Log.verbose('Added verification tag: $verificationLevel',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+
+            // Add ProofMode manifest tag (complete JSON manifest)
+            final manifestTag = createProofManifestTag(manifest);
+            tags.add(['proofmode', manifestTag]);
+            Log.verbose('Added proofmode manifest tag (${manifestTag.length} chars)',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+
+            // Add device attestation tag if available
+            final deviceTag = createDeviceAttestationTag(manifest);
+            if (deviceTag != null) {
+              tags.add(['device_attestation', deviceTag]);
+              Log.verbose('Added device_attestation tag',
+                  name: 'VideoEventPublisher', category: LogCategory.video);
+            }
+
+            // Add PGP fingerprint tag if available
+            final pgpTag = createPgpFingerprintTag(manifest);
+            if (pgpTag != null) {
+              tags.add(['pgp_fingerprint', pgpTag]);
+              Log.verbose('Added pgp_fingerprint tag: $pgpTag',
+                  name: 'VideoEventPublisher', category: LogCategory.video);
+            }
+
+            Log.info('✅ ProofMode verification tags added successfully',
+                name: 'VideoEventPublisher', category: LogCategory.video);
+          }
+        } catch (e) {
+          Log.error('Failed to add ProofMode tags: $e',
+              name: 'VideoEventPublisher', category: LogCategory.video);
+          // Continue publishing even if ProofMode tag generation fails
+        }
       }
 
       // Create the event content
