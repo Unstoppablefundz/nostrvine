@@ -43,7 +43,8 @@ void main() {
       // where _handleUploadSuccess fetches the latest upload from Hive
       // to preserve the thumbnail URL that was stored at line 551
 
-      final uploadManager = container.read(uploadManagerProvider);
+      // Instantiate upload manager to ensure provider is initialized
+      container.read(uploadManagerProvider);
 
       // ARRANGE: Create upload with all fields populated (simulating successful upload)
       final upload = PendingUpload.create(
