@@ -160,7 +160,7 @@ void main() {
       capturedCall.called(1);
 
       final capturedOptions = capturedCall.captured.first as Options;
-      final headers = capturedOptions.headers as Map<String, dynamic>?;
+      final headers = capturedOptions.headers;
 
       expect(headers, isNotNull);
       expect(headers!['Authorization'], startsWith('Nostr '));
@@ -240,7 +240,7 @@ void main() {
       capturedCall.called(1);
 
       final capturedOptions = capturedCall.captured.first as Options;
-      final headers = capturedOptions.headers as Map<String, dynamic>?;
+      final headers = capturedOptions.headers;
 
       expect(headers, isNotNull);
       expect(headers!['Authorization'], startsWith('Nostr '));
