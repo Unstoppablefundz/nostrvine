@@ -1,33 +1,49 @@
-// ABOUTME: Profile-specific feed provider for route-driven ProfileScreenRouter
+// ABOUTME: Route-aware profile feed provider (reactive, no lifecycle writes)
 // ABOUTME: Returns videos for a specific user's profile based on route context
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/router/page_context_provider.dart';
 import 'package:openvine/router/route_utils.dart';
 import 'package:openvine/state/video_feed_state.dart';
+import 'package:openvine/utils/npub_hex.dart';
 
-/// Profile feed state for a specific user
-/// Returns AsyncValue<VideoFeedState> filtered by profile pubkey from route
-final videosForProfileRouteProvider =
-    Provider<AsyncValue<VideoFeedState>>((ref) {
-  final contextAsync = ref.watch(pageContextProvider);
+/// Route-aware profile feed (reactive, no lifecycle writes).
+final videosForProfileRouteProvider = Provider<AsyncValue<VideoFeedState>>((ref) {
+  final ctx = ref.watch(pageContextProvider).asData?.value;
+  if (ctx == null || ctx.type != RouteType.profile) {
+    return AsyncValue.data(VideoFeedState(
+      videos: const [],
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ));
+  }
 
-  return contextAsync.when(
-    data: (ctx) {
-      if (ctx.type != RouteType.profile) {
-        // Not on profile route - return loading
-        return const AsyncValue.loading();
-      }
+  // Route param: /profile/:npub/:index
+  final npub = (ctx.npub ?? '').trim();
+  final hex = npubToHexOrNull(npub);
+  if (hex == null) {
+    return AsyncValue.data(VideoFeedState(
+      videos: const [],
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ));
+  }
 
-      // TODO: Implement actual profile feed fetching based on ctx.profilePubkey
-      // For now, return empty feed until we wire up real profile feed provider
-      return AsyncValue.data(VideoFeedState(
-        videos: const [],
-        hasMoreContent: false,
-        isLoadingMore: false,
-      ));
-    },
-    loading: () => const AsyncValue.loading(),
-    error: (e, st) => AsyncValue.error(e, st),
+  // Subscribe (service manages lifecycle internally; this is idempotent)
+  final svc = ref.watch(videoEventServiceProvider);
+  svc.subscribeToUserVideos(hex, limit: 100);
+
+  // REACTIVE selection: rebuilds when service updates the list for this author
+  final items = ref.watch(
+    videoEventServiceProvider.select((s) => s.authorVideos(hex)),
+  );
+
+  return AsyncValue.data(
+    VideoFeedState(
+      videos: items,
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ),
   );
 });

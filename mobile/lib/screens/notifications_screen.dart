@@ -39,228 +39,150 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor: isDarkMode ? Colors.black : Colors.white,
-      appBar: AppBar(
-        backgroundColor: isDarkMode ? Colors.black : Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back,
-            color: isDarkMode ? Colors.white : Colors.black,
+    // AppShell provides the Scaffold and AppBar, so this is just the body content
+    return Column(
+      children: [
+        // Tab bar for filtering notifications
+        Container(
+          color: Colors.black,
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            indicatorColor: DivineTheme.primaryPurple,
+            labelColor: DivineTheme.primaryPurple,
+            unselectedLabelColor: Colors.grey,
+            onTap: (index) {
+              setState(() {
+                switch (index) {
+                  case 0:
+                    _selectedFilter = null;
+                  case 1:
+                    _selectedFilter = NotificationType.like;
+                  case 2:
+                    _selectedFilter = NotificationType.comment;
+                  case 3:
+                    _selectedFilter = NotificationType.follow;
+                  case 4:
+                    _selectedFilter = NotificationType.repost;
+                }
+              });
+            },
+            tabs: const [
+              Tab(text: 'All'),
+              Tab(text: 'Likes'),
+              Tab(text: 'Comments'),
+              Tab(text: 'Follows'),
+              Tab(text: 'Reposts'),
+            ],
           ),
-          onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(
-          'Notifications',
-          style: TextStyle(
-            color: isDarkMode ? Colors.white : Colors.black,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        actions: [
-          Builder(
+        // Notification list
+        Expanded(
+          child: Builder(
             builder: (context) {
               final service = ref.watch(notificationServiceEnhancedProvider);
-              if (service.notifications.isEmpty) return const SizedBox.shrink();
+              // Filter notifications based on selected tab
+              final notifications = _selectedFilter == null
+                  ? service.notifications
+                  : service.getNotificationsByType(_selectedFilter!);
 
-              return PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_vert,
-                  color: isDarkMode ? Colors.white : Colors.black,
-                ),
-                onSelected: (value) async {
-                  if (value == 'mark_all_read') {
-                    await service.markAllAsRead();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('All notifications marked as read'),
-                          duration: Duration(seconds: 2),
+              if (notifications.isEmpty) {
+                return Container(
+                  color: Colors.black,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.notifications_none,
+                          size: 64,
+                          color: Colors.grey[700],
                         ),
-                      );
-                    }
-                  } else if (value == 'clear_all') {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Clear All Notifications?'),
-                        content: const Text('This action cannot be undone.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Cancel'),
+                        const SizedBox(height: 16),
+                        Text(
+                          _selectedFilter == null
+                              ? 'No notifications yet'
+                              : 'No ${_getFilterName(_selectedFilter!)} notifications',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[400],
                           ),
-                          TextButton(
-                            onPressed: () async {
-                              await service.clearAll();
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "When people interact with your content,\nyou'll see it here",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return Container(
+                color: Colors.black,
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    // TODO: Implement refresh logic
+                    await Future.delayed(const Duration(seconds: 1));
+                  },
+                  child: ListView.builder(
+                    itemCount: notifications.length,
+                    itemBuilder: (context, index) {
+                      final notification = notifications[index];
+                      final showDateHeader = _shouldShowDateHeader(
+                        index,
+                        notifications,
+                      );
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (showDateHeader)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                              child: Text(
+                                _getDateHeader(notification.timestamp),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                            ),
+                          NotificationListItem(
+                            notification: notification,
+                            onTap: () async {
+                              // Mark as read
+                              await service.markAsRead(notification.id);
+
+                              // Navigate to appropriate screen based on type
                               if (context.mounted) {
-                                Navigator.of(context).pop();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('All notifications cleared'),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
+                                _navigateToTarget(context, notification);
                               }
                             },
-                            child: const Text(
-                              'Clear All',
-                              style: TextStyle(color: Colors.red),
-                            ),
                           ),
+                          if (index < notifications.length - 1)
+                            Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: Colors.grey[800],
+                              indent: 72,
+                            ),
                         ],
-                      ),
-                    );
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'mark_all_read',
-                    child: Text('Mark all as read'),
+                      );
+                    },
                   ),
-                  const PopupMenuItem(
-                    value: 'clear_all',
-                    child: Text('Clear all'),
-                  ),
-                ],
+                ),
               );
             },
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          indicatorColor: DivineTheme.primaryPurple,
-          labelColor: DivineTheme.primaryPurple,
-          unselectedLabelColor: isDarkMode ? Colors.grey : Colors.grey[600],
-          onTap: (index) {
-            setState(() {
-              switch (index) {
-                case 0:
-                  _selectedFilter = null;
-                case 1:
-                  _selectedFilter = NotificationType.like;
-                case 2:
-                  _selectedFilter = NotificationType.comment;
-                case 3:
-                  _selectedFilter = NotificationType.follow;
-                case 4:
-                  _selectedFilter = NotificationType.repost;
-              }
-            });
-          },
-          tabs: const [
-            Tab(text: 'All'),
-            Tab(text: 'Likes'),
-            Tab(text: 'Comments'),
-            Tab(text: 'Follows'),
-            Tab(text: 'Reposts'),
-          ],
         ),
-      ),
-      body: Builder(
-        builder: (context) {
-          final service = ref.watch(notificationServiceEnhancedProvider);
-          // Filter notifications based on selected tab
-          final notifications = _selectedFilter == null
-              ? service.notifications
-              : service.getNotificationsByType(_selectedFilter!);
-
-          if (notifications.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 64,
-                    color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _selectedFilter == null
-                        ? 'No notifications yet'
-                        : 'No ${_getFilterName(_selectedFilter!)} notifications',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "When people interact with your content,\nyou'll see it here",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDarkMode ? Colors.grey[600] : Colors.grey[400],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              // TODO: Implement refresh logic
-              await Future.delayed(const Duration(seconds: 1));
-            },
-            child: ListView.builder(
-              itemCount: notifications.length,
-              itemBuilder: (context, index) {
-                final notification = notifications[index];
-                final showDateHeader = _shouldShowDateHeader(
-                  index,
-                  notifications,
-                );
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (showDateHeader)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: Text(
-                          _getDateHeader(notification.timestamp),
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: isDarkMode
-                                ? Colors.grey[400]
-                                : Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                    NotificationListItem(
-                      notification: notification,
-                      onTap: () async {
-                        // Mark as read
-                        await service.markAsRead(notification.id);
-
-                        // Navigate to appropriate screen based on type
-                        if (context.mounted) {
-                          _navigateToTarget(context, notification);
-                        }
-                      },
-                    ),
-                    if (index < notifications.length - 1)
-                      Divider(
-                        height: 1,
-                        thickness: 0.5,
-                        color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
-                        indent: 72,
-                      ),
-                  ],
-                );
-              },
-            ),
-          );
-        },
-      ),
+      ],
     );
   }
 

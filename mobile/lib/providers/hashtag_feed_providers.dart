@@ -1,33 +1,49 @@
-// ABOUTME: Hashtag-specific feed provider for route-driven HashtagScreenRouter
-// ABOUTME: Returns videos filtered by hashtag based on route context
+// ABOUTME: Route-aware hashtag feed provider (reactive, no lifecycle writes)
+// ABOUTME: Returns videos filtered by hashtag from route context
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/router/page_context_provider.dart';
 import 'package:openvine/router/route_utils.dart';
 import 'package:openvine/state/video_feed_state.dart';
 
-/// Hashtag feed state for a specific hashtag
-/// Returns AsyncValue<VideoFeedState> filtered by hashtag from route
-final videosForHashtagRouteProvider =
-    Provider<AsyncValue<VideoFeedState>>((ref) {
-  final contextAsync = ref.watch(pageContextProvider);
+/// Route-aware hashtag feed (reactive, no lifecycle writes).
+final videosForHashtagRouteProvider = Provider<AsyncValue<VideoFeedState>>((ref) {
+  final ctx = ref.watch(pageContextProvider).asData?.value;
+  if (ctx == null || ctx.type != RouteType.hashtag) {
+    return AsyncValue.data(VideoFeedState(
+      videos: const [],
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ));
+  }
 
-  return contextAsync.when(
-    data: (ctx) {
-      if (ctx.type != RouteType.hashtag) {
-        // Not on hashtag route - return loading
-        return const AsyncValue.loading();
-      }
+  // Route param: /hashtag/:tag/:index
+  final tag = (ctx.hashtag ?? '').trim();
+  if (tag.isEmpty) {
+    return AsyncValue.data(VideoFeedState(
+      videos: const [],
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ));
+  }
 
-      // TODO(#148): Implement actual hashtag feed fetching based on ctx.hashtag
-      // For now, return empty feed until we wire up real hashtag feed provider
-      return AsyncValue.data(VideoFeedState(
-        videos: const [],
-        hasMoreContent: false,
-        isLoadingMore: false,
-      ));
-    },
-    loading: () => const AsyncValue.loading(),
-    error: (e, st) => AsyncValue.error(e, st),
+  // Subscribe (service manages lifecycle internally; this is idempotent)
+  final svc = ref.watch(videoEventServiceProvider);
+  // NOTE: Current service takes List<String>, wrapping single tag
+  svc.subscribeToHashtagVideos([tag], limit: 100);
+
+  // REACTIVE selection: rebuilds when service updates the list for this tag
+  final items = ref.watch(
+    videoEventServiceProvider.select((s) => s.hashtagVideos(tag)),
+  );
+
+  // No pagination yet; wire that later
+  return AsyncValue.data(
+    VideoFeedState(
+      videos: items,
+      hasMoreContent: false,
+      isLoadingMore: false,
+    ),
   );
 });

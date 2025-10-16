@@ -112,6 +112,10 @@ class VideoEventService extends ChangeNotifier {
     SubscriptionType.search: [],
   };
 
+  // Keyed event lists for hashtag and author feeds (route-aware)
+  final Map<String, List<VideoEvent>> _hashtagBuckets = {};
+  final Map<String, List<VideoEvent>> _authorBuckets = {};
+
   // Track active subscriptions per type
   final Map<SubscriptionType, String> _activeSubscriptions = {};
   final Map<String, StreamSubscription> _subscriptions = {};
@@ -229,8 +233,14 @@ class VideoEventService extends ChangeNotifier {
   /// Get trending videos
   List<VideoEvent> get trendingVideos => getVideos(SubscriptionType.trending);
 
-  /// Get hashtag videos
-  List<VideoEvent> get hashtagVideos => getVideos(SubscriptionType.hashtag);
+  /// Get hashtag videos (all)
+  List<VideoEvent> get allHashtagVideos => getVideos(SubscriptionType.hashtag);
+
+  /// Get videos for a specific hashtag (keyed for route-aware feeds)
+  List<VideoEvent> hashtagVideos(String tag) => _hashtagBuckets[tag] ?? const [];
+
+  /// Get videos for a specific author (keyed for route-aware feeds)
+  List<VideoEvent> authorVideos(String pubkeyHex) => _authorBuckets[pubkeyHex] ?? const [];
 
   /// Get search results
   List<VideoEvent> get searchResults => getVideos(SubscriptionType.search);
