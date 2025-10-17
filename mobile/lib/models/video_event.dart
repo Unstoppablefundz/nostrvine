@@ -376,7 +376,7 @@ class VideoEvent {
     }
 
     // Generate fallback thumbnail URL if none provided
-    developer.log('🖼️ BEFORE FALLBACK: thumbnailUrl = $thumbnailUrl',
+    developer.log('🖼️ Thumbnail URL: $thumbnailUrl',
         name: 'VideoEvent');
     final String? finalThumbnailUrl =
         thumbnailUrl ?? _generateFallbackThumbnailUrl(videoUrl, event.id);
@@ -385,11 +385,6 @@ class VideoEvent {
       developer.log('🔧 FALLBACK: Generated thumbnail URL: $finalThumbnailUrl',
           name: 'VideoEvent');
     }
-
-    developer.log('🖼️ FINAL: thumbnailUrl = $finalThumbnailUrl',
-        name: 'VideoEvent');
-    developer.log('🖼️ FINAL: blurhash = $blurhash', name: 'VideoEvent');
-    developer.log('🖼️ FINAL: event.id = ${event.id}', name: 'VideoEvent');
 
     return VideoEvent(
       id: event.id,

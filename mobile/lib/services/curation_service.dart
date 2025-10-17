@@ -57,6 +57,7 @@ class CurationService {
   // Editor's picks curation list state
   CurationSet? _editorPicksCurationList;
   bool _hasFetchedEditorsList = false;
+  List<VideoEvent> _editorPicksVideoCache = []; // Dedicated cache for editor's picks videos
 
   /// Current curation sets
   List<CurationSet> get curationSets => _curationSets.values.toList();
@@ -217,38 +218,93 @@ class CurationService {
     if (_editorPicksCurationList == null) return;
 
     final allVideos = _videoEventService.discoveryVideos;
-    final listVideoIds = _editorPicksCurationList!.videoIds;
-    final missingEventIds = <String>[];
+    final listCoordinates = _editorPicksCurationList!.videoIds;
+    final missingCoordinates = <String>[];
 
-    // Find videos not in local cache
-    for (final videoId in listVideoIds) {
-      if (!allVideos.any((v) => v.id == videoId)) {
-        missingEventIds.add(videoId);
+    // First, add any videos already in discoveryVideos to our dedicated cache
+    for (final coordinate in listCoordinates) {
+      final existingVideo = allVideos.firstWhere(
+        (v) => _matchesCoordinate(v, coordinate),
+        orElse: () => VideoEvent(
+          id: '',
+          pubkey: '',
+          createdAt: 0,
+          content: '',
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      if (existingVideo.id.isNotEmpty) {
+        // Video already exists, add to cache
+        if (!_editorPicksVideoCache.any((v) => v.id == existingVideo.id)) {
+          _editorPicksVideoCache.add(existingVideo);
+        }
+      } else {
+        // Video missing, need to fetch
+        missingCoordinates.add(coordinate);
       }
     }
 
-    if (missingEventIds.isEmpty) {
+    if (missingCoordinates.isEmpty) {
       Log.info(
-          "✅ All ${listVideoIds.length} editor's picks videos already cached",
+          "✅ All ${listCoordinates.length} editor's picks videos already cached",
           name: 'CurationService',
           category: LogCategory.system);
       return;
     }
 
     Log.info(
-        "📡 Fetching ${missingEventIds.length} missing editor's picks videos from relays...",
+        "📡 Fetching ${missingCoordinates.length} missing editor's picks videos from relays...",
         name: 'CurationService',
         category: LogCategory.system);
 
     try {
-      final filter = Filter(ids: missingEventIds);
-      final eventStream = _nostrService.subscribeToEvents(filters: [filter]);
+      // Build filters for addressable events using d-tag
+      final filters = <Filter>[];
+      final directEventIds = <String>[];
+
+      for (final coordinate in missingCoordinates) {
+        if (coordinate.contains(':')) {
+          final parts = coordinate.split(':');
+          if (parts.length >= 3) {
+            final kind = int.tryParse(parts[0]);
+            final author = parts[1];
+            final dTag = parts.sublist(2).join(':');
+
+            if (kind != null) {
+              // Use NIP-33 addressable event filter with d-tag
+              filters.add(Filter(
+                kinds: [kind],
+                authors: [author],
+                d: [dTag],
+                limit: 1,
+              ));
+            }
+          }
+        } else {
+          // Direct event ID
+          directEventIds.add(coordinate);
+        }
+      }
+
+      // Add filter for direct event IDs if any
+      if (directEventIds.isNotEmpty) {
+        filters.add(Filter(ids: directEventIds));
+      }
+
+      if (filters.isEmpty) {
+        Log.warning("No valid filters created for missing editor's picks",
+            name: 'CurationService', category: LogCategory.system);
+        return;
+      }
+
+      final eventStream = _nostrService.subscribeToEvents(filters: filters);
 
       final fetchedVideos = <VideoEvent>[];
       final completer = Completer<void>();
       late StreamSubscription<Event> streamSubscription;
       var receivedCount = 0;
-      final targetCount = missingEventIds.length;
+      final targetCount = missingCoordinates.length;
 
       streamSubscription = eventStream.listen(
         (event) {
@@ -265,6 +321,11 @@ class CurationService {
             // Add to video event service cache
             // This triggers videoEventsProvider → curationProvider refresh chain
             _videoEventService.addVideoEvent(video);
+
+            // Also store in dedicated editor's picks cache
+            if (!_editorPicksVideoCache.any((v) => v.id == video.id)) {
+              _editorPicksVideoCache.add(video);
+            }
 
             // Complete if we got all videos
             if (receivedCount >= targetCount) {
@@ -296,7 +357,7 @@ class CurationService {
       await streamSubscription.cancel();
 
       Log.info(
-          "✅ Fetched ${fetchedVideos.length}/${missingEventIds.length} editor's picks videos from relays",
+          "✅ Fetched ${fetchedVideos.length}/${missingCoordinates.length} editor's picks videos from relays",
           name: 'CurationService',
           category: LogCategory.system);
 
@@ -308,13 +369,41 @@ class CurationService {
     }
   }
 
+  /// Match a video against an addressable coordinate (kind:pubkey:d-tag)
+  /// Returns true if the video matches the coordinate
+  bool _matchesCoordinate(VideoEvent video, String coordinate) {
+    // Check if this is an addressable coordinate (contains colons)
+    if (coordinate.contains(':')) {
+      final parts = coordinate.split(':');
+      if (parts.length >= 3) {
+        // Addressable reference: kind:pubkey:d-tag
+        final coordinatePubkey = parts[1];
+        final coordinateDTag = parts.sublist(2).join(':');
+
+        // Match by pubkey and vineId (d-tag)
+        final pubkeyMatches = video.pubkey == coordinatePubkey;
+        final dTagMatches = video.vineId == coordinateDTag;
+
+        if (!pubkeyMatches || !dTagMatches) {
+          Log.verbose(
+              '  ✗ Coordinate mismatch: video ${video.id.substring(0, 8)} pubkey=${pubkeyMatches} dTag=${dTagMatches} (expected d-tag: $coordinateDTag, got: ${video.vineId})',
+              name: 'CurationService',
+              category: LogCategory.system);
+        }
+
+        return pubkeyMatches && dTagMatches;
+      }
+    }
+
+    // Fallback: direct event ID match
+    return video.id == coordinate;
+  }
+
   /// Algorithm for selecting editor's picks
   List<VideoEvent> _selectEditorsPicksVideos(
     List<VideoEvent> byTime,
     List<VideoEvent> byReactions,
   ) {
-    final picks = <VideoEvent>[];
-
     // If we don't have the curation list yet, start fetching it (async)
     if (!_hasFetchedEditorsList) {
       _fetchEditorsPicksListFromRelay();
@@ -322,47 +411,48 @@ class CurationService {
           "⏳ Editor's Picks list not fetched yet, starting fetch in background",
           name: 'CurationService',
           category: LogCategory.system);
-      return picks; // Return empty for now
+      return []; // Return empty for now
     }
 
     // If fetch completed but found no list, return empty
     if (_editorPicksCurationList == null) {
       Log.verbose("📋 No Editor's Picks curation list available",
           name: 'CurationService', category: LogCategory.system);
-      return picks;
+      return [];
     }
 
-    // Get videos from the curation list
-    final allVideos = _videoEventService.discoveryVideos;
+    // Return videos from the dedicated cache
+    // This cache persists across navigation, unlike discoveryVideos
     final listVideoIds = _editorPicksCurationList!.videoIds;
+    final picks = <VideoEvent>[];
 
     // Only log on changes to avoid spam
     final currentCount = listVideoIds.length;
     if (_lastEditorVideoCount != currentCount) {
-      Log.debug("🔍 Selecting Editor's Picks from curation list...",
+      Log.debug("🔍 Selecting Editor's Picks from cache...",
           name: 'CurationService', category: LogCategory.system);
       Log.debug('  List: ${_editorPicksCurationList!.title}',
           name: 'CurationService', category: LogCategory.system);
-      Log.debug('  Video IDs in list: ${listVideoIds.length}',
+      Log.debug('  References in list: ${listVideoIds.length}',
           name: 'CurationService', category: LogCategory.system);
-      Log.debug('  Total videos available: ${allVideos.length}',
+      Log.debug('  Cached videos: ${_editorPicksVideoCache.length}',
           name: 'CurationService', category: LogCategory.system);
 
       _lastEditorVideoCount = currentCount;
     }
 
-    // Find videos matching the curation list's video IDs
-    for (final videoId in listVideoIds) {
+    // Match videos from our dedicated cache
+    for (final coordinate in listVideoIds) {
       try {
-        final video = allVideos.firstWhere(
-          (v) => v.id == videoId,
+        final video = _editorPicksVideoCache.firstWhere(
+          (v) => _matchesCoordinate(v, coordinate),
         );
         picks.add(video);
-        Log.verbose('  ✓ Added: ${video.title ?? video.id.substring(0, 8)}',
+        Log.verbose('  ✓ Matched: ${video.title ?? video.id.substring(0, 8)}',
             name: 'CurationService', category: LogCategory.system);
       } catch (e) {
-        // Video not found in local cache, skip it
-        Log.verbose('  ✗ Not found locally: ${videoId.substring(0, 8)}',
+        // Video not found in cache yet (still being fetched)
+        Log.verbose('  ✗ Not in cache: ${coordinate.length > 16 ? coordinate.substring(0, 16) : coordinate}...',
             name: 'CurationService', category: LogCategory.system);
       }
     }

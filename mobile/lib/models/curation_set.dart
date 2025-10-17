@@ -50,11 +50,15 @@ class CurationSet {
           // Video reference: "a", "kind:pubkey:identifier"
           if (tagList.length > 1) {
             final parts = (tagList[1] as String).split(':');
-            if (parts.length >= 3 && parts[0] == '22') {
-              // NIP-71 video events
-              // Extract the identifier part as video ID
-              final videoId = parts.sublist(2).join(':');
-              videoIds.add(videoId);
+            if (parts.length >= 3 &&
+                (parts[0] == '22' ||
+                    parts[0] == '34236' ||
+                    parts[0] == '34235')) {
+              // NIP-71 video events (kind 22, 34236, 34235)
+              // For addressable references, we need the full coordinate
+              // Format: kind:pubkey:d-tag
+              final coordinate = tagList[1] as String;
+              videoIds.add(coordinate);
             }
           }
         case 'e':

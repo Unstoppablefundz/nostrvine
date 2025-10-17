@@ -42,8 +42,9 @@ class AppConstants {
 
   /// Event ID for the official Editor's Picks curation list (kind 30005)
   /// This is a Nostr event containing the curated video list
+  /// Published by: npub1wmrtrwj5f8yms3ekfha8g54flt8ktdtyarc53wfc0c0xvee09nlsqqr9pn
   static const String editorPicksEventId =
-      '76c71aae3a491f1d9eec47cba17e229cda4113a0bbb6e6ae1776d7643e29cafa';
+      '5e2797304dda04159f8f9f6c36cc5d7f473abe3931f21d7b68fed1ab6a04db3a';
 
   /// Maximum videos to show in Editor's Picks
   static const int editorPicksLimit = 25;
