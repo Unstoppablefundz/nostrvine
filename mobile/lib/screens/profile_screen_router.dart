@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:openvine/models/video_event.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/providers/profile_feed_provider.dart';
@@ -18,7 +19,7 @@ import 'package:openvine/screens/vine_drafts_screen.dart';
 import 'package:openvine/screens/profile_setup_screen.dart';
 import 'package:openvine/services/auth_service.dart';
 import 'package:openvine/router/nav_extensions.dart';
-import 'package:openvine/widgets/video_page_view.dart';
+import 'package:openvine/widgets/video_feed_item.dart';
 import 'package:openvine/services/social_service.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/nostr_encoding.dart';
@@ -42,6 +43,8 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
     with TickerProviderStateMixin {
   late TabController _tabController;
   final ScrollController _scrollController = ScrollController();
+  PageController? _videoController;  // For fullscreen video mode
+  int? _lastVideoUrlIndex;  // Track URL changes for video mode
 
   @override
   void initState() {
@@ -77,6 +80,7 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
   void dispose() {
     _tabController.dispose();
     _scrollController.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
 
@@ -96,6 +100,41 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
 
         // Convert npub to hex for profile feed provider
         final npub = ctx.npub ?? '';
+
+        // Handle "me" special case - redirect to actual user profile
+        if (npub == 'me') {
+          final authService = ref.watch(authServiceProvider);
+          if (!authService.isAuthenticated || authService.currentPublicKeyHex == null) {
+            // Not authenticated - redirect to home
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                context.go('/home/0');
+              }
+            });
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          // Get current user's npub and redirect
+          final currentUserNpub = NostrEncoding.encodePublicKey(authService.currentPublicKeyHex!);
+          final videoIndex = ctx.videoIndex ?? 0;
+
+          Log.info(
+            'ProfileScreenRouter: Redirecting /profile/me/$videoIndex to /profile/$currentUserNpub/$videoIndex',
+            name: 'ProfileScreenRouter',
+            category: LogCategory.ui,
+          );
+
+          // Redirect to actual user profile
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              context.go('/profile/$currentUserNpub/$videoIndex');
+            }
+          });
+
+          // Show loading while redirecting
+          return const Center(child: CircularProgressIndicator());
+        }
+
         final userIdHex = npubToHexOrNull(npub);
 
         if (userIdHex == null) {
@@ -136,22 +175,54 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
               final listIndex = videoIndex - 1;
               final safeIndex = listIndex.clamp(0, videos.length - 1);
 
-              return VideoPageView(
-                videos: videos,
-                initialIndex: safeIndex,
-                hasBottomNavigation: false, // Fullscreen mode, no bottom nav
-                enableLifecycleManagement: true,
-                // Don't pass tabIndex - this is standalone fullscreen, always visible
-                screenId: 'profile:$npub',
-                contextTitle: ref.read(fetchUserProfileProvider(userIdHex)).value?.displayName ?? 'Profile',
-                onPageChanged: (index, video) {
+              // Initialize controller once with URL index
+              if (_videoController == null) {
+                _videoController = PageController(initialPage: safeIndex);
+                _lastVideoUrlIndex = safeIndex;
+              }
+
+              // Sync controller when URL changes externally (back/forward/deeplink)
+              if (listIndex != _lastVideoUrlIndex && _videoController!.hasClients) {
+                _lastVideoUrlIndex = listIndex;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted || !_videoController!.hasClients) return;
+                  final targetIndex = listIndex.clamp(0, videos.length - 1);
+                  final currentPage = _videoController!.page?.round() ?? 0;
+                  if (currentPage != targetIndex) {
+                    _videoController!.jumpToPage(targetIndex);
+                  }
+                });
+              }
+
+              // Build fullscreen video PageView
+              return PageView.builder(
+                key: const Key('profile-video-page-view'),
+                controller: _videoController,
+                scrollDirection: Axis.vertical,
+                itemCount: videos.length,
+                onPageChanged: (newIndex) {
                   // Update URL when swiping to stay in profile context
-                  // Convert list index back to URL index (add 1)
-                  context.goProfile(npub, index + 1);
+                  // Convert list index to URL index (add 1)
+                  final newUrlIndex = newIndex + 1;
+                  if (newUrlIndex != videoIndex) {
+                    context.goProfile(npub, newUrlIndex);
+                  }
+
+                  // Trigger pagination near end
+                  if (newIndex >= videos.length - 2) {
+                    ref.read(profileFeedProvider(userIdHex).notifier).loadMore();
+                  }
                 },
-                onLoadMore: () {
-                  // Load more videos when near end
-                  ref.read(profileFeedProvider(userIdHex).notifier).loadMore();
+                itemBuilder: (context, index) {
+                  if (index >= videos.length) return const SizedBox.shrink();
+
+                  return VideoFeedItem(
+                    key: ValueKey('video-${videos[index].id}'),
+                    video: videos[index],
+                    index: index,
+                    hasBottomNavigation: false, // Fullscreen mode, no bottom nav
+                    contextTitle: ref.read(fetchUserProfileProvider(userIdHex)).value?.displayName ?? 'Profile',
+                  );
                 },
               );
             }
