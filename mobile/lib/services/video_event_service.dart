@@ -662,10 +662,13 @@ class VideoEventService extends ChangeNotifier {
             Log.info('✅ EOSE received for $subscriptionType after ${eoseDuration.inMilliseconds}ms with $eventCount events',
                 name: 'VideoEventService', category: LogCategory.video);
 
-            // Warn if no events received
+            // Warn if no events received - trigger automatic diagnostics
             if (eventCount == 0) {
               Log.warning('⚠️ EOSE received but NO EVENTS for $subscriptionType - feed will be empty!',
                   name: 'VideoEventService', category: LogCategory.video);
+
+              // TODO: Re-implement automatic diagnostics for debugging empty feeds
+              // _runAutoDiagnostics(subscriptionType, filters);
             }
           },
         );
@@ -3090,6 +3093,140 @@ class VideoEventService extends ChangeNotifier {
   @visibleForTesting
   void handleEventForTesting(Event event, SubscriptionType type) {
     _handleNewVideoEvent(event, type);
+  }
+
+  /// Run automatic diagnostics when feed fails to load events
+  /// This logs relay status, connection info, and tests direct queries to help debug
+  Future<void> _runAutoDiagnostics(
+      SubscriptionType subscriptionType, List<Filter> filters) async {
+    Log.warning(
+        '🔍 Running automatic diagnostics for empty $subscriptionType feed...',
+        name: 'VideoEventService',
+        category: LogCategory.video);
+
+    try {
+      // 1. Check relay connection status
+      final relays = _nostrService.relays;
+      final connectedRelays = _nostrService.connectedRelays;
+      final connectedCount = _nostrService.connectedRelayCount;
+
+      Log.warning('📊 Relay Status:',
+          name: 'VideoEventService', category: LogCategory.video);
+      Log.warning('   - Configured relays: ${relays.join(", ")}',
+          name: 'VideoEventService', category: LogCategory.video);
+      Log.warning(
+          '   - Connected relays: ${connectedRelays.join(", ")} ($connectedCount/${relays.length})',
+          name: 'VideoEventService',
+          category: LogCategory.video);
+
+      if (connectedCount == 0) {
+        Log.error(
+            '❌ DIAGNOSTIC: No relays connected! This is why feed is empty.',
+            name: 'VideoEventService',
+            category: LogCategory.video);
+        return;
+      }
+
+      // 2. Log the subscription filters being used
+      Log.warning('📋 Subscription Filters:',
+          name: 'VideoEventService', category: LogCategory.video);
+      for (var i = 0; i < filters.length; i++) {
+        final filter = filters[i];
+        Log.warning('   Filter $i:',
+            name: 'VideoEventService', category: LogCategory.video);
+        Log.warning('      - kinds: ${filter.kinds}',
+            name: 'VideoEventService', category: LogCategory.video);
+        Log.warning('      - authors: ${filter.authors?.length ?? 0} authors',
+            name: 'VideoEventService', category: LogCategory.video);
+
+        if (filter.authors != null && filter.authors!.isEmpty) {
+          Log.error(
+              '❌ DIAGNOSTIC: Authors list is EMPTY! This will return 0 events for homeFeed.',
+              name: 'VideoEventService',
+              category: LogCategory.video);
+        }
+
+        if (filter.limit != null) {
+          Log.warning('      - limit: ${filter.limit}',
+              name: 'VideoEventService', category: LogCategory.video);
+        }
+        if (filter.since != null) {
+          Log.warning('      - since: ${filter.since}',
+              name: 'VideoEventService', category: LogCategory.video);
+        }
+        if (filter.until != null) {
+          Log.warning('      - until: ${filter.until}',
+              name: 'VideoEventService', category: LogCategory.video);
+        }
+      }
+
+      // 3. Test direct query to see if events exist in database
+      Log.warning('🔍 Testing direct database query (bypassing subscription)...',
+          name: 'VideoEventService', category: LogCategory.video);
+
+      final directQueryEvents = await _nostrService.getEvents(
+        filters: [Filter(kinds: [34236, 34235, 22, 21], limit: 100)],
+        limit: 100,
+      );
+
+      Log.warning(
+          '✅ Direct query returned ${directQueryEvents.length} video events',
+          name: 'VideoEventService',
+          category: LogCategory.video);
+
+      if (directQueryEvents.isEmpty) {
+        Log.error(
+            '❌ DIAGNOSTIC: Embedded relay database has NO video events!',
+            name: 'VideoEventService',
+            category: LogCategory.video);
+        Log.error(
+            '   This means external relay → embedded relay sync is not working.',
+            name: 'VideoEventService',
+            category: LogCategory.video);
+      } else {
+        Log.warning(
+            '✅ DIAGNOSTIC: Database HAS ${directQueryEvents.length} events, but subscription returned 0.',
+            name: 'VideoEventService',
+            category: LogCategory.video);
+        Log.error(
+            '❌ This means subscription filtering is too restrictive OR subscription stream is broken.',
+            name: 'VideoEventService',
+            category: LogCategory.video);
+
+        // Log sample events to help compare with subscription filters
+        Log.warning('📄 Sample events in database:',
+            name: 'VideoEventService', category: LogCategory.video);
+        for (var i = 0; i < directQueryEvents.length && i < 3; i++) {
+          final event = directQueryEvents[i];
+          Log.warning('   Event $i:',
+              name: 'VideoEventService', category: LogCategory.video);
+          Log.warning('      - id: ${event.id}',
+              name: 'VideoEventService', category: LogCategory.video);
+          Log.warning('      - kind: ${event.kind}',
+              name: 'VideoEventService', category: LogCategory.video);
+          Log.warning('      - pubkey: ${event.pubkey}',
+              name: 'VideoEventService', category: LogCategory.video);
+          Log.warning(
+              '      - createdAt: ${DateTime.fromMillisecondsSinceEpoch(event.createdAt * 1000)}',
+              name: 'VideoEventService',
+              category: LogCategory.video);
+        }
+      }
+
+      // 4. Get relay stats for additional diagnostics
+      final relayStats = await _nostrService.getRelayStats();
+      if (relayStats != null) {
+        Log.warning('📊 Relay Database Stats:',
+            name: 'VideoEventService', category: LogCategory.video);
+        Log.warning('   ${relayStats.toString()}',
+            name: 'VideoEventService', category: LogCategory.video);
+      }
+    } catch (e, stackTrace) {
+      Log.error('❌ Auto-diagnostics failed: $e',
+          name: 'VideoEventService', category: LogCategory.video);
+      Log.verbose('Stack trace: $stackTrace',
+          name: 'VideoEventService', category: LogCategory.video);
+    }
   }
 
 }

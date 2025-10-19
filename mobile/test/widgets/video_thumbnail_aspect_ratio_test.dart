@@ -1,5 +1,5 @@
-// ABOUTME: Tests verifying that video thumbnails always render as square (1:1 aspect ratio)
-// ABOUTME: Ensures 480x480 videos display correctly with proper aspect ratio
+// ABOUTME: Tests verifying that video thumbnails match the actual video aspect ratio from dimensions metadata
+// ABOUTME: Ensures thumbnails prevent visual jump when video loads by matching video dimensions
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

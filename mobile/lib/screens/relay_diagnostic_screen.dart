@@ -119,6 +119,57 @@ class _RelayDiagnosticScreenState extends ConsumerState<RelayDiagnosticScreen> {
     });
   }
 
+  Future<void> _testDirectEventQuery() async {
+    Log.info('🔍 Testing direct event query (bypassing subscriptions)...',
+        name: 'RelayDiagnostic');
+
+    final nostrService = ref.read(nostrServiceProvider);
+
+    try {
+      // Query for video events directly from embedded relay database
+      final videoEvents = await nostrService.getEvents(
+        filters: [
+          nostr.Filter(kinds: [34236, 34235, 22, 21], limit: 100)
+        ],
+        limit: 100,
+      );
+
+      Log.info('✅ Direct query returned ${videoEvents.length} video events',
+          name: 'RelayDiagnostic');
+
+      if (videoEvents.isNotEmpty) {
+        Log.info('📹 Sample events:', name: 'RelayDiagnostic');
+        for (var i = 0; i < videoEvents.take(3).length; i++) {
+          final event = videoEvents[i];
+          Log.info('  Event $i: kind=${event.kind}, author=${event.pubkey.substring(0, 16)}..., timestamp=${event.createdAt}',
+              name: 'RelayDiagnostic');
+        }
+      } else {
+        Log.warning('⚠️ No video events found in embedded relay database!',
+            name: 'RelayDiagnostic');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Found ${videoEvents.length} video events in database'),
+            backgroundColor: videoEvents.isNotEmpty ? Colors.green[700] : Colors.orange[700],
+          ),
+        );
+      }
+    } catch (e) {
+      Log.error('❌ Direct query failed: $e', name: 'RelayDiagnostic');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Query failed: ${e.toString()}'),
+            backgroundColor: Colors.red[700],
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _retryConnection() async {
     setState(() {
       _isRetrying = true;
@@ -279,6 +330,18 @@ class _RelayDiagnosticScreenState extends ConsumerState<RelayDiagnosticScreen> {
               _buildInfoRow('Loading', videoService.isLoading ? 'Yes' : 'No'),
               if (videoService.error != null)
                 _buildErrorRow('Error', videoService.error!),
+              const Divider(color: Colors.grey),
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: _testDirectEventQuery,
+                  icon: const Icon(Icons.search, color: Colors.white),
+                  label: const Text('Test Direct Query',
+                      style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: VineTheme.vineGreen,
+                  ),
+                ),
+              ),
             ],
           ),
 

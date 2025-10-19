@@ -22,6 +22,7 @@ class DeepLink {
     this.npub,
     this.hashtag,
     this.searchTerm,
+    this.index,
   });
 
   final DeepLinkType type;
@@ -29,18 +30,20 @@ class DeepLink {
   final String? npub;
   final String? hashtag;
   final String? searchTerm;
+  final int? index; // Optional video index for feed view
 
   @override
   String toString() {
+    final indexStr = index != null ? ', index: $index' : '';
     switch (type) {
       case DeepLinkType.video:
         return 'DeepLink(type: video, videoId: $videoId)';
       case DeepLinkType.profile:
-        return 'DeepLink(type: profile, npub: $npub)';
+        return 'DeepLink(type: profile, npub: $npub$indexStr)';
       case DeepLinkType.hashtag:
-        return 'DeepLink(type: hashtag, hashtag: $hashtag)';
+        return 'DeepLink(type: hashtag, hashtag: $hashtag$indexStr)';
       case DeepLinkType.search:
-        return 'DeepLink(type: search, searchTerm: $searchTerm)';
+        return 'DeepLink(type: search, searchTerm: $searchTerm$indexStr)';
       case DeepLinkType.unknown:
         return 'DeepLink(type: unknown)';
     }
@@ -105,28 +108,34 @@ class DeepLinkService {
         return DeepLink(type: DeepLinkType.video, videoId: videoId);
       }
 
-      // Handle /profile/{npub}
-      if (pathSegments.length == 2 && pathSegments[0] == 'profile') {
+      // Handle /profile/{npub} or /profile/{npub}/{index}
+      if ((pathSegments.length == 2 || pathSegments.length == 3) &&
+          pathSegments[0] == 'profile') {
         final npub = pathSegments[1];
-        Log.info('📱 Parsed profile deep link: $npub',
+        final index = pathSegments.length == 3 ? int.tryParse(pathSegments[2]) : null;
+        Log.info('📱 Parsed profile deep link: $npub${index != null ? " (index: $index)" : ""}',
             name: 'DeepLinkService', category: LogCategory.ui);
-        return DeepLink(type: DeepLinkType.profile, npub: npub);
+        return DeepLink(type: DeepLinkType.profile, npub: npub, index: index);
       }
 
-      // Handle /hashtag/{tag}
-      if (pathSegments.length == 2 && pathSegments[0] == 'hashtag') {
+      // Handle /hashtag/{tag} or /hashtag/{tag}/{index}
+      if ((pathSegments.length == 2 || pathSegments.length == 3) &&
+          pathSegments[0] == 'hashtag') {
         final hashtag = pathSegments[1];
-        Log.info('📱 Parsed hashtag deep link: $hashtag',
+        final index = pathSegments.length == 3 ? int.tryParse(pathSegments[2]) : null;
+        Log.info('📱 Parsed hashtag deep link: $hashtag${index != null ? " (index: $index)" : ""}',
             name: 'DeepLinkService', category: LogCategory.ui);
-        return DeepLink(type: DeepLinkType.hashtag, hashtag: hashtag);
+        return DeepLink(type: DeepLinkType.hashtag, hashtag: hashtag, index: index);
       }
 
-      // Handle /search/{term}
-      if (pathSegments.length == 2 && pathSegments[0] == 'search') {
+      // Handle /search/{term} or /search/{term}/{index}
+      if ((pathSegments.length == 2 || pathSegments.length == 3) &&
+          pathSegments[0] == 'search') {
         final searchTerm = pathSegments[1];
-        Log.info('📱 Parsed search deep link: $searchTerm',
+        final index = pathSegments.length == 3 ? int.tryParse(pathSegments[2]) : null;
+        Log.info('📱 Parsed search deep link: $searchTerm${index != null ? " (index: $index)" : ""}',
             name: 'DeepLinkService', category: LogCategory.ui);
-        return DeepLink(type: DeepLinkType.search, searchTerm: searchTerm);
+        return DeepLink(type: DeepLinkType.search, searchTerm: searchTerm, index: index);
       }
 
       Log.warning('Unknown deep link path: ${uri.path}',

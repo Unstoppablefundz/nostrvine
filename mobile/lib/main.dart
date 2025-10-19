@@ -320,7 +320,8 @@ class _DivineAppState extends ConsumerState<DivineApp> {
               break;
             case DeepLinkType.profile:
               if (deepLink.npub != null) {
-                final targetPath = '/profile/${deepLink.npub}/0';
+                final index = deepLink.index ?? 0;
+                final targetPath = '/profile/${deepLink.npub}/$index';
                 Log.info('📱 Navigating to profile: $targetPath',
                     name: 'DeepLinkHandler', category: LogCategory.ui);
                 try {
@@ -338,7 +339,10 @@ class _DivineAppState extends ConsumerState<DivineApp> {
               break;
             case DeepLinkType.hashtag:
               if (deepLink.hashtag != null) {
-                final targetPath = '/hashtag/${deepLink.hashtag}';
+                // Include index if present, otherwise use grid view
+                final targetPath = deepLink.index != null
+                    ? '/hashtag/${deepLink.hashtag}/${deepLink.index}'
+                    : '/hashtag/${deepLink.hashtag}';
                 Log.info('📱 Navigating to hashtag: $targetPath',
                     name: 'DeepLinkHandler', category: LogCategory.ui);
                 try {
@@ -356,7 +360,10 @@ class _DivineAppState extends ConsumerState<DivineApp> {
               break;
             case DeepLinkType.search:
               if (deepLink.searchTerm != null) {
-                final targetPath = '/search/${deepLink.searchTerm}';
+                // Include index if present, otherwise use grid view
+                final targetPath = deepLink.index != null
+                    ? '/search/${deepLink.searchTerm}/${deepLink.index}'
+                    : '/search/${deepLink.searchTerm}';
                 Log.info('📱 Navigating to search: $targetPath',
                     name: 'DeepLinkHandler', category: LogCategory.ui);
                 try {

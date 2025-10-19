@@ -12,7 +12,10 @@ class ErrorAnalyticsTracker {
   factory ErrorAnalyticsTracker() => _instance;
   ErrorAnalyticsTracker._internal();
 
-  final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
+  // Lazy initialization to avoid Firebase dependency during construction
+  FirebaseAnalytics? _analytics;
+  FirebaseAnalytics get analytics => _analytics ??= FirebaseAnalytics.instance;
+
   final Map<String, int> _errorCounts = {};
 
   /// Track a general application error

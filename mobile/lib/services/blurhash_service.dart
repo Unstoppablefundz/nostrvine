@@ -21,16 +21,41 @@ class BlurhashService {
     int componentY = defaultComponentY,
   }) async {
     try {
-      // Use blurhash_dart library for encoding
-      // Note: This requires image processing to get width, height, and pixel data
-      // For now, return null as encoding is more complex and requires image decoding
-      Log.warning(
-          'BlurhashService.generateBlurhash not fully implemented - encoding requires image processing',
+      // Decode image to get dimensions and pixel data
+      final image = img.decodeImage(imageBytes);
+      if (image == null) {
+        Log.error('Failed to decode image for blurhash generation',
+            name: 'BlurhashService', category: LogCategory.system);
+        return null;
+      }
+
+      // Convert image to RGBA format for blurhash encoding
+      final rgbaImage = image.convert(numChannels: 4);
+      final width = rgbaImage.width;
+      final height = rgbaImage.height;
+
+      // Get pixel data in the format blurhash_dart expects
+      final pixels = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+
+      // Encode blurhash using blurhash_dart library
+      final blurhash = blurhash_dart.BlurHash.encode(
+        pixels,
+        width,
+        height,
+        componentX: componentX,
+        componentY: componentY,
+      );
+
+      Log.verbose(
+          'Generated blurhash: $blurhash (${width}x$height, ${componentX}x$componentY components)',
           name: 'BlurhashService',
           category: LogCategory.system);
-      return null;
-    } catch (e) {
+
+      return blurhash.hash;
+    } catch (e, stackTrace) {
       Log.error('Failed to generate blurhash: $e',
+          name: 'BlurhashService', category: LogCategory.system);
+      Log.verbose('Stack trace: $stackTrace',
           name: 'BlurhashService', category: LogCategory.system);
       return null;
     }
