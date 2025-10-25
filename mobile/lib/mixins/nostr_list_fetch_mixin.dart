@@ -1,7 +1,6 @@
 // ABOUTME: Reusable mixin for Nostr list fetching screens (followers/following)
 // ABOUTME: Provides common state management and UI building patterns for user list screens
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/widgets/user_profile_tile.dart';
@@ -28,8 +27,13 @@ import 'package:openvine/widgets/user_profile_tile.dart';
 ///
 ///   @override
 ///   Future<void> fetchList() async {
-///     // Your Nostr subscription logic here
-///     startLoadingTimeout(); // Start 3-second timeout
+///     // Your Nostr subscription logic with proper timeout handling
+///     final subscription = nostrService.subscribeToEvents(...);
+///
+///     subscription.timeout(Duration(seconds: 5), onTimeout: (sink) {
+///       setError('Failed to connect to relay server');
+///       sink.close();
+///     }).listen(...);
 ///   }
 ///
 ///   @override
@@ -58,9 +62,6 @@ mixin NostrListFetchMixin<T extends StatefulWidget> on State<T> {
   /// Error message
   String? get error;
   set error(String? value);
-
-  /// Timer for loading timeout
-  Timer? _loadingTimer;
 
   /// Fetch the list from Nostr (must be implemented by the using class)
   Future<void> fetchList();
@@ -92,23 +93,6 @@ mixin NostrListFetchMixin<T extends StatefulWidget> on State<T> {
         isLoading = false;
       });
     }
-  }
-
-  /// Start a 3-second timeout to complete loading if still loading
-  /// NOTE: This is a temporary pattern - ideally should use proper async completion
-  void startLoadingTimeout() {
-    _loadingTimer?.cancel();
-    _loadingTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && isLoading) {
-        completeLoading();
-      }
-    });
-  }
-
-  /// Cancel loading timeout timer
-  void cancelLoadingTimeout() {
-    _loadingTimer?.cancel();
-    _loadingTimer = null;
   }
 
   /// Load the list with error handling
@@ -211,11 +195,5 @@ mixin NostrListFetchMixin<T extends StatefulWidget> on State<T> {
         );
       },
     );
-  }
-
-  @override
-  void dispose() {
-    cancelLoadingTimeout();
-    super.dispose();
   }
 }

@@ -38,8 +38,23 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
     super.dispose();
   }
 
+  static int _buildCount = 0;
+  static DateTime? _lastBuildTime;
+
   @override
   Widget build(BuildContext context) {
+    _buildCount++;
+    final now = DateTime.now();
+    final timeSinceLastBuild = _lastBuildTime != null ? now.difference(_lastBuildTime!).inMilliseconds : null;
+    if (timeSinceLastBuild != null && timeSinceLastBuild < 100) {
+      Log.warning(
+        '⚠️ HomeScreenRouter: RAPID REBUILD #$_buildCount! Only ${timeSinceLastBuild}ms since last build',
+        name: 'HomeScreenRouter',
+        category: LogCategory.video,
+      );
+    }
+    _lastBuildTime = now;
+
     // Check if user follows anyone - redirect to explore if not
     final socialState = ref.watch(social.socialProvider);
     if (socialState.isInitialized && socialState.followingPubkeys.isEmpty) {
@@ -73,20 +88,8 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
           onData: (state) {
             final videos = state.videos;
 
-            // Determine target index from route context
-            if (ctx.eventId != null) {
-              // Event-based routing: find video by ID
-              final targetIndex = videos.indexWhere((v) => v.id == ctx.eventId);
-              urlIndex = targetIndex != -1 ? targetIndex : 0;
-              Log.debug(
-                '📍 Event-based routing: eventId=${ctx.eventId} → index=$urlIndex',
-                name: 'HomeScreenRouter',
-                category: LogCategory.video,
-              );
-            } else {
-              // Legacy index-based routing
-              urlIndex = (ctx.videoIndex ?? 0).clamp(0, videos.length - 1);
-            }
+            // Determine target index from route context (index-based routing)
+            urlIndex = (ctx.videoIndex ?? 0).clamp(0, videos.length - 1);
 
             if (videos.isEmpty) {
               return const Center(
@@ -125,12 +128,8 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
             bool urlUpdatePending = false;
             if (_currentVideoId != null && videos.isNotEmpty && !_urlUpdateScheduled) {
               final currentVideoIndex = videos.indexWhere((v) => v.id == _currentVideoId);
-              // Only update URL if:
-              // 1. Video moved to a different index AND
-              // 2. URL doesn't already point to this video ID (prevents redundant updates)
-              if (currentVideoIndex != -1 &&
-                  currentVideoIndex != urlIndex &&
-                  ctx.eventId != _currentVideoId) {
+              // Only update URL if video moved to a different index
+              if (currentVideoIndex != -1 && currentVideoIndex != urlIndex) {
                 // Video we're viewing is now at a different index - update URL silently
                 Log.debug(
                   '📍 Video $_currentVideoId moved from index $urlIndex → $currentVideoIndex, updating URL',
@@ -141,11 +140,10 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (!mounted) return;
                   _urlUpdateScheduled = false; // Reset flag after update
-                  // Use event-based routing (always use event ID, not index)
                   context.go(buildRoute(
                     RouteContext(
                       type: RouteType.home,
-                      eventId: _currentVideoId,
+                      videoIndex: currentVideoIndex,
                     ),
                   ));
                 });
@@ -211,11 +209,10 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
 
                   // Guard: only navigate if URL doesn't match
                   if (newIndex != urlIndex) {
-                    // Use event-based routing (always use event ID, not index)
                     context.go(buildRoute(
                       RouteContext(
                         type: RouteType.home,
-                        eventId: videos[newIndex].id,
+                        videoIndex: newIndex,
                       ),
                     ));
                   }

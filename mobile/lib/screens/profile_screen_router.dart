@@ -301,8 +301,14 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
               ],
             );
           },
+          onLoading: () => const Center(child: CircularProgressIndicator()),
+          onError: (error, stack) => Center(
+            child: Text('Error: $error'),
+          ),
         );
       },
+      onLoading: () => const Center(child: CircularProgressIndicator()),
+      onError: (error, stack) => Center(child: Text('Error: $error')),
     );
   }
 

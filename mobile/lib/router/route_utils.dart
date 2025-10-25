@@ -18,15 +18,13 @@ class RouteContext {
   const RouteContext({
     required this.type,
     this.videoIndex,
-    this.eventId,
     this.npub,
     this.hashtag,
     this.searchTerm,
   });
 
   final RouteType type;
-  final int? videoIndex; // Legacy: index-based routing
-  final String? eventId; // Modern: event-based routing (nevent format)
+  final int? videoIndex;
   final String? npub;
   final String? hashtag;
   final String? searchTerm;
@@ -45,33 +43,13 @@ RouteContext parseRoute(String path) {
 
   switch (firstSegment) {
     case 'home':
-      if (segments.length > 1) {
-        final segment = segments[1];
-        // Check if it's an event ID (starts with "nevent")
-        if (segment.startsWith('nevent')) {
-          final eventId = Uri.decodeComponent(segment);
-          return RouteContext(type: RouteType.home, eventId: eventId);
-        }
-        // Legacy: parse as index
-        final rawIndex = int.tryParse(segment) ?? 0;
-        final index = rawIndex < 0 ? 0 : rawIndex;
-        return RouteContext(type: RouteType.home, videoIndex: index);
-      }
-      // Default to index 0 for backward compatibility
-      return const RouteContext(type: RouteType.home, videoIndex: 0);
+      final rawIndex = segments.length > 1 ? int.tryParse(segments[1]) ?? 0 : 0;
+      final index = rawIndex < 0 ? 0 : rawIndex;
+      return RouteContext(type: RouteType.home, videoIndex: index);
 
     case 'explore':
-      // No segment = grid mode (null videoIndex/eventId)
-      // With nevent segment = feed mode with event
-      // With index segment = feed mode with legacy index
       if (segments.length > 1) {
-        final segment = segments[1];
-        if (segment.startsWith('nevent')) {
-          final eventId = Uri.decodeComponent(segment);
-          return RouteContext(type: RouteType.explore, eventId: eventId);
-        }
-        // Legacy: parse as index
-        final rawIndex = int.tryParse(segment);
+        final rawIndex = int.tryParse(segments[1]);
         final index = rawIndex != null && rawIndex < 0 ? 0 : rawIndex;
         return RouteContext(type: RouteType.explore, videoIndex: index);
       }
@@ -82,78 +60,30 @@ RouteContext parseRoute(String path) {
         return const RouteContext(type: RouteType.home);
       }
       final npub = Uri.decodeComponent(segments[1]); // Decode URL encoding
-
-      if (segments.length > 2) {
-        final segment = segments[2];
-        if (segment.startsWith('nevent')) {
-          final eventId = Uri.decodeComponent(segment);
-          return RouteContext(
-            type: RouteType.profile,
-            npub: npub,
-            eventId: eventId,
-          );
-        }
-        // Legacy: parse as index
-        final rawIndex = int.tryParse(segment) ?? 0;
-        final index = rawIndex < 0 ? 0 : rawIndex;
-        return RouteContext(
-          type: RouteType.profile,
-          npub: npub,
-          videoIndex: index,
-        );
-      }
-
-      // Handle "me" as special redirect marker - this will be resolved by ProfileScreenRouter
-      // The router will redirect /profile/me to /profile/:actualNpub
+      final rawIndex = segments.length > 2 ? int.tryParse(segments[2]) ?? 0 : 0;
+      final index = rawIndex < 0 ? 0 : rawIndex;
       return RouteContext(
         type: RouteType.profile,
-        npub: npub, // Will be "me" if URL is /profile/me
+        npub: npub,
+        videoIndex: index,
       );
 
     case 'notifications':
-      if (segments.length > 1) {
-        final segment = segments[1];
-        if (segment.startsWith('nevent')) {
-          final eventId = Uri.decodeComponent(segment);
-          return RouteContext(type: RouteType.notifications, eventId: eventId);
-        }
-        // Legacy: parse as index
-        final rawIndex = int.tryParse(segment) ?? 0;
-        final index = rawIndex < 0 ? 0 : rawIndex;
-        return RouteContext(type: RouteType.notifications, videoIndex: index);
-      }
-      return const RouteContext(type: RouteType.notifications);
+      final rawIndex = segments.length > 1 ? int.tryParse(segments[1]) ?? 0 : 0;
+      final index = rawIndex < 0 ? 0 : rawIndex;
+      return RouteContext(type: RouteType.notifications, videoIndex: index);
 
     case 'hashtag':
       if (segments.length < 2) {
         return const RouteContext(type: RouteType.home);
       }
       final tag = Uri.decodeComponent(segments[1]); // Decode URL encoding
-
-      if (segments.length > 2) {
-        final segment = segments[2];
-        if (segment.startsWith('nevent')) {
-          final eventId = Uri.decodeComponent(segment);
-          return RouteContext(
-            type: RouteType.hashtag,
-            hashtag: tag,
-            eventId: eventId,
-          );
-        }
-        // Legacy: parse as index
-        final rawIndex = int.tryParse(segment);
-        final index = rawIndex != null && rawIndex < 0 ? 0 : rawIndex;
-        return RouteContext(
-          type: RouteType.hashtag,
-          hashtag: tag,
-          videoIndex: index,
-        );
-      }
-
-      // No third segment = grid mode
+      final rawIndex = segments.length > 2 ? int.tryParse(segments[2]) : null;
+      final index = rawIndex != null && rawIndex < 0 ? 0 : rawIndex;
       return RouteContext(
         type: RouteType.hashtag,
         hashtag: tag,
+        videoIndex: index,
       );
 
     case 'search':
@@ -199,42 +129,22 @@ RouteContext parseRoute(String path) {
 
 /// Build a URL path from a RouteContext
 /// Encodes dynamic parameters and normalizes indices to >= 0
-/// Prefers eventId over videoIndex when both are present
 String buildRoute(RouteContext context) {
   switch (context.type) {
     case RouteType.home:
-      // Prefer event-based routing
-      if (context.eventId != null) {
-        final encodedId = Uri.encodeComponent(context.eventId!);
-        return '/home/$encodedId';
-      }
-      // Legacy: index-based routing (defaults to 0 for backward compatibility)
       final rawIndex = context.videoIndex ?? 0;
       final index = rawIndex < 0 ? 0 : rawIndex;
       return '/home/$index';
 
     case RouteType.explore:
-      // Event-based feed mode
-      if (context.eventId != null) {
-        final encodedId = Uri.encodeComponent(context.eventId!);
-        return '/explore/$encodedId';
-      }
-      // Legacy index-based feed mode
       if (context.videoIndex != null) {
         final rawIndex = context.videoIndex!;
         final index = rawIndex < 0 ? 0 : rawIndex;
         return '/explore/$index';
       }
-      // Grid mode
       return '/explore';
 
     case RouteType.notifications:
-      // Event-based routing
-      if (context.eventId != null) {
-        final encodedId = Uri.encodeComponent(context.eventId!);
-        return '/notifications/$encodedId';
-      }
-      // Legacy index-based routing
       if (context.videoIndex != null) {
         final rawIndex = context.videoIndex!;
         final index = rawIndex < 0 ? 0 : rawIndex;
@@ -244,36 +154,20 @@ String buildRoute(RouteContext context) {
 
     case RouteType.profile:
       final npub = Uri.encodeComponent(context.npub ?? '');
-
-      // Event-based routing
-      if (context.eventId != null) {
-        final encodedId = Uri.encodeComponent(context.eventId!);
-        return '/profile/$npub/$encodedId';
-      }
-      // Legacy index-based routing
       if (context.videoIndex != null) {
         final rawIndex = context.videoIndex!;
         final index = rawIndex < 0 ? 0 : rawIndex;
         return '/profile/$npub/$index';
       }
-      // Grid mode (profile without video)
       return '/profile/$npub';
 
     case RouteType.hashtag:
       final hashtag = Uri.encodeComponent(context.hashtag ?? '');
-
-      // Event-based feed mode
-      if (context.eventId != null) {
-        final encodedId = Uri.encodeComponent(context.eventId!);
-        return '/hashtag/$hashtag/$encodedId';
-      }
-      // Legacy index-based feed mode
       if (context.videoIndex != null) {
         final rawIndex = context.videoIndex!;
         final index = rawIndex < 0 ? 0 : rawIndex;
         return '/hashtag/$hashtag/$index';
       }
-      // Grid mode
       return '/hashtag/$hashtag';
 
     case RouteType.search:

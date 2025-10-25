@@ -33,7 +33,7 @@ final pageContextProvider = StreamProvider<RouteContext>((ref) async* {
   await for (final loc in locations) {
     final ctx = parseRoute(loc);
     Log.info(
-      'CTX derive: type=${ctx.type} npub=${ctx.npub} index=${ctx.videoIndex} eventId=${ctx.eventId}',
+      'CTX derive: type=${ctx.type} npub=${ctx.npub} index=${ctx.videoIndex}',
       name: 'Route',
       category: LogCategory.system,
     );

@@ -65,8 +65,22 @@ class _FollowersScreenState extends ConsumerState<FollowersScreen>
       ],
     );
 
+    // Apply timeout to detect relay connection issues
+    final timeoutSubscription = subscription.timeout(
+      const Duration(seconds: 5),
+      onTimeout: (sink) {
+        // No data received within 5 seconds - likely connection issue
+        if (mounted && _followers.isEmpty) {
+          setError('Failed to connect to relay server. Please check your connection and try again.');
+        } else {
+          completeLoading();
+        }
+        sink.close();
+      },
+    );
+
     // Process events immediately as they arrive for real-time updates
-    subscription.listen(
+    timeoutSubscription.listen(
       (event) {
         // Each author who has this pubkey in their contact list is a follower
         if (!_followers.contains(event.pubkey)) {
@@ -81,12 +95,15 @@ class _FollowersScreenState extends ConsumerState<FollowersScreen>
       onError: (error) {
         Log.error('Error in followers subscription: $error',
             name: 'FollowersScreen', category: LogCategory.relay);
-        setError('Failed to load followers');
+        setError('Failed to connect to relay server. Please check your connection and try again.');
+      },
+      onDone: () {
+        // Stream completed naturally
+        if (mounted) {
+          completeLoading();
+        }
       },
     );
-
-    // Start timeout to complete loading state if no followers found within 3 seconds
-    startLoadingTimeout();
   }
 
   @override

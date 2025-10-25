@@ -1,16 +1,13 @@
 // ABOUTME: Screen displaying list of users followed by the profile being viewed
 // ABOUTME: Shows user profiles with follow/unfollow buttons and navigation to their profiles
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nostr_sdk/nostr_sdk.dart' as nostr_sdk;
+import 'package:openvine/mixins/nostr_list_fetch_mixin.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/router/nav_extensions.dart';
-import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
-import 'package:openvine/widgets/user_profile_tile.dart';
 
 class FollowingScreen extends ConsumerStatefulWidget {
   const FollowingScreen(
@@ -23,51 +20,56 @@ class FollowingScreen extends ConsumerStatefulWidget {
   ConsumerState<FollowingScreen> createState() => _FollowingScreenState();
 }
 
-class _FollowingScreenState extends ConsumerState<FollowingScreen> {
+class _FollowingScreenState extends ConsumerState<FollowingScreen>
+    with NostrListFetchMixin {
+  // Mixin state variables
   List<String> _following = [];
   bool _isLoading = true;
   String? _error;
 
   @override
+  List<String> get userList => _following;
+
+  @override
+  set userList(List<String> value) => _following = value;
+
+  @override
+  bool get isLoading => _isLoading;
+
+  @override
+  set isLoading(bool value) => _isLoading = value;
+
+  @override
+  String? get error => _error;
+
+  @override
+  set error(String? value) => _error = value;
+
+  @override
   void initState() {
     super.initState();
-    _loadFollowing();
+    loadList();
   }
 
-  Future<void> _loadFollowing() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
+  @override
+  Future<void> fetchList() async {
+    final socialService = ref.read(socialServiceProvider);
 
-      final socialService = ref.read(socialServiceProvider);
-
-      // If viewing current user's following, use cached data
-      final authService = ref.read(authServiceProvider);
-      if (widget.pubkey == authService.currentPublicKeyHex) {
-        final following = socialService.followingPubkeys;
-        if (mounted) {
-          setState(() {
-            _following = following;
-            _isLoading = false;
-          });
-        }
-        return;
-      }
-
-      // Otherwise start streaming following list from Nostr - updates will happen in real-time
-      await _fetchFollowingFromNostr(widget.pubkey);
-    } catch (e) {
-      Log.error('Failed to load following: $e',
-          name: 'FollowingScreen', category: LogCategory.ui);
+    // If viewing current user's following, use cached data
+    final authService = ref.read(authServiceProvider);
+    if (widget.pubkey == authService.currentPublicKeyHex) {
+      final following = socialService.followingPubkeys;
       if (mounted) {
         setState(() {
-          _error = 'Failed to load following';
-          _isLoading = false;
+          _following = following;
+          completeLoading();
         });
       }
+      return;
     }
+
+    // Otherwise start streaming following list from Nostr
+    await _fetchFollowingFromNostr(widget.pubkey);
   }
 
   Future<void> _fetchFollowingFromNostr(String pubkey) async {
@@ -84,8 +86,22 @@ class _FollowingScreenState extends ConsumerState<FollowingScreen> {
       ],
     );
 
+    // Apply timeout to detect relay connection issues
+    final timeoutSubscription = subscription.timeout(
+      const Duration(seconds: 5),
+      onTimeout: (sink) {
+        // No data received within 5 seconds - likely connection issue
+        if (mounted && _following.isEmpty) {
+          setError('Failed to connect to relay server. Please check your connection and try again.');
+        } else {
+          completeLoading();
+        }
+        sink.close();
+      },
+    );
+
     // Process events immediately as they arrive for real-time updates
-    subscription.listen(
+    timeoutSubscription.listen(
       (event) {
         // Extract followed pubkeys from 'p' tags
         final newFollowing = <String>[];
@@ -102,115 +118,36 @@ class _FollowingScreenState extends ConsumerState<FollowingScreen> {
         if (mounted) {
           setState(() {
             _following = newFollowing;
-            _isLoading =
-                false; // Stop loading as soon as we have the contact list
+            completeLoading(); // Stop loading as soon as we have the contact list
           });
         }
       },
       onError: (error) {
         Log.error('Error in following subscription: $error',
             name: 'FollowingScreen', category: LogCategory.relay);
+        setError('Failed to connect to relay server. Please check your connection and try again.');
+      },
+      onDone: () {
+        // Stream completed naturally
         if (mounted) {
-          setState(() {
-            _error = 'Failed to load following';
-            _isLoading = false;
-          });
+          completeLoading();
         }
       },
     );
-
-    // Complete loading state after a short delay even if no contact list found
-    Timer(const Duration(seconds: 3), () {
-      if (mounted && _isLoading) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: VineTheme.backgroundColor,
-      appBar: AppBar(
-        backgroundColor: VineTheme.backgroundColor,
-        title: Text(
-          '${widget.displayName}\'s Following',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+      backgroundColor: Colors.black,
+      appBar: buildAppBar(context, '${widget.displayName}\'s Following'),
+      body: buildListBody(
+        context,
+        _following,
+        _navigateToProfile,
+        emptyMessage: 'Not following anyone yet',
+        emptyIcon: Icons.person_add_outlined,
       ),
-      body: _buildBody(),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.purple),
-      );
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              _error!,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadFollowing,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_following.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.person_add_outlined, color: Colors.grey, size: 48),
-            SizedBox(height: 16),
-            Text(
-              'Not following anyone yet',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _following.length,
-      itemBuilder: (context, index) {
-        final followingPubkey = _following[index];
-        return UserProfileTile(
-          pubkey: followingPubkey,
-          onTap: () => _navigateToProfile(followingPubkey),
-        );
-      },
     );
   }
 

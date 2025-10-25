@@ -56,15 +56,8 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
               return const Center(child: Text('No videos available'));
             }
 
-            // Determine target index from route context
-            if (ctx.eventId != null) {
-              // Event-based routing: find video by ID
-              final targetIndex = videos.indexWhere((v) => v.id == ctx.eventId);
-              urlIndex = targetIndex != -1 ? targetIndex : 0;
-            } else {
-              // Legacy index-based routing
-              urlIndex = (ctx.videoIndex ?? 0).clamp(0, videos.length - 1);
-            }
+            // Determine target index from route context (index-based routing)
+            urlIndex = (ctx.videoIndex ?? 0).clamp(0, videos.length - 1);
 
             final itemCount = videos.length;
 
@@ -101,7 +94,7 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
                   context.go(buildRoute(
                     RouteContext(
                       type: RouteType.explore,
-                      eventId: videos[newIndex].id,
+                      videoIndex: newIndex,
                     ),
                   ));
                 }
