@@ -154,13 +154,19 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter>
             // Sync controller when URL changes externally (back/forward/deeplink)
             // OR when videos list changes (e.g., social provider loads)
             // Skip if URL update is already pending from reorder detection
-            if (!urlUpdatePending &&
-                shouldSync(
-                  urlIndex: urlIndex,
-                  lastUrlIndex: _lastUrlIndex,
-                  controller: _controller,
-                  targetIndex: urlIndex.clamp(0, itemCount - 1),
-                )) {
+            final shouldSyncNow = shouldSync(
+              urlIndex: urlIndex,
+              lastUrlIndex: _lastUrlIndex,
+              controller: _controller,
+              targetIndex: urlIndex.clamp(0, itemCount - 1),
+            );
+
+            if (!urlUpdatePending && shouldSyncNow) {
+              Log.debug(
+                '🔄 SYNCING PageController: urlIndex=$urlIndex, lastUrlIndex=$_lastUrlIndex, currentPage=${_controller?.page?.round()}',
+                name: 'HomeScreenRouter',
+                category: LogCategory.video,
+              );
               _lastUrlIndex = urlIndex;
               _currentVideoId = videos[urlIndex.clamp(0, itemCount - 1)].id; // Update tracked video
               syncPageController(
