@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:nostr_sdk/nostr_sdk.dart' as sdk;
+import 'package:openvine/constants/app_constants.dart';
 import 'package:openvine/services/nostr_key_manager.dart';
 import 'package:openvine/services/nostr_service_interface.dart';
 import 'package:openvine/utils/unified_logger.dart';
@@ -78,7 +79,7 @@ abstract class NostrServiceWeb implements INostrService {
     }
 
     // Default relay
-    final defaultRelay = 'wss://relay3.openvine.co';
+    final defaultRelay = AppConstants.defaultRelayUrl;
     final relaysToAdd = customRelays ?? [defaultRelay];
     if (!relaysToAdd.contains(defaultRelay)) {
       relaysToAdd.add(defaultRelay);
@@ -363,7 +364,7 @@ abstract class NostrServiceWeb implements INostrService {
   @override
   String get primaryRelay => _configuredRelays.isNotEmpty
       ? _configuredRelays.first
-      : 'wss://relay3.openvine.co';
+      : AppConstants.defaultRelayUrl;
 
   @override
   Future<Map<String, dynamic>?> getRelayStats() async {

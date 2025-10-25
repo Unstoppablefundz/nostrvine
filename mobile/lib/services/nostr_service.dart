@@ -10,6 +10,7 @@ import 'package:flutter_embedded_nostr_relay/flutter_embedded_nostr_relay.dart'
 import 'package:logging/logging.dart' as logging;
 import 'package:nostr_sdk/event.dart';
 import 'package:nostr_sdk/filter.dart' as nostr;
+import 'package:openvine/constants/app_constants.dart';
 import 'package:openvine/models/nip94_metadata.dart';
 import 'package:openvine/services/crash_reporting_service.dart';
 import 'package:openvine/services/nostr_key_manager.dart';
@@ -60,7 +61,7 @@ class NostrService implements INostrService {
         name: 'NostrService', category: LogCategory.relay);
 
     // Ensure default relay is always included
-    final defaultRelay = 'wss://relay3.openvine.co';
+    final defaultRelay = AppConstants.defaultRelayUrl;
     final relaysToAdd = customRelays ?? [defaultRelay];
     if (!relaysToAdd.contains(defaultRelay)) {
       relaysToAdd.add(defaultRelay);
@@ -998,7 +999,7 @@ class NostrService implements INostrService {
     // Fallback for web or when embedded relay unavailable
     return _configuredRelays.isNotEmpty
         ? _configuredRelays.first
-        : 'wss://relay3.openvine.co';
+        : AppConstants.defaultRelayUrl;
   }
 
   /// Get embedded relay statistics for performance monitoring

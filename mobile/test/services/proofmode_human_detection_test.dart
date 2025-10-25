@@ -290,22 +290,26 @@ void main() {
 // Helper functions to generate test data
 
 List<UserInteractionProof> _generateHumanLikeInteractions() {
+  final baseTime = DateTime.now();
+  // Natural human timing with variation (80-120ms intervals)
   return [
-    _createInteraction('start', 0.500, 0.500, pressure: 0.7),
-    _createInteraction('touch', 0.502, 0.498, pressure: 0.6),
-    _createInteraction('touch', 0.498, 0.503, pressure: 0.8),
-    _createInteraction('touch', 0.501, 0.497, pressure: 0.7),
-    _createInteraction('stop', 0.499, 0.501, pressure: 0.5),
+    _createInteraction('start', 0.500, 0.500, pressure: 0.7, timestamp: baseTime),
+    _createInteraction('touch', 0.502, 0.498, pressure: 0.6, timestamp: baseTime.add(Duration(milliseconds: 95))),
+    _createInteraction('touch', 0.498, 0.503, pressure: 0.8, timestamp: baseTime.add(Duration(milliseconds: 207))),
+    _createInteraction('touch', 0.501, 0.497, pressure: 0.7, timestamp: baseTime.add(Duration(milliseconds: 288))),
+    _createInteraction('stop', 0.499, 0.501, pressure: 0.5, timestamp: baseTime.add(Duration(milliseconds: 405))),
   ];
 }
 
 List<UserInteractionProof> _generateBotLikeInteractions() {
+  final baseTime = DateTime.now();
+  // Bot-like: perfect coordinates AND perfect timing (100ms exactly)
   return [
-    _createInteraction('start', 0.500, 0.500, pressure: 0.5),
-    _createInteraction('touch', 0.500, 0.500, pressure: 0.5),
-    _createInteraction('touch', 0.500, 0.500, pressure: 0.5),
-    _createInteraction('touch', 0.500, 0.500, pressure: 0.5),
-    _createInteraction('stop', 0.500, 0.500, pressure: 0.5),
+    _createInteraction('start', 0.500, 0.500, pressure: 0.5, timestamp: baseTime),
+    _createInteraction('touch', 0.500, 0.500, pressure: 0.5, timestamp: baseTime.add(Duration(milliseconds: 100))),
+    _createInteraction('touch', 0.500, 0.500, pressure: 0.5, timestamp: baseTime.add(Duration(milliseconds: 200))),
+    _createInteraction('touch', 0.500, 0.500, pressure: 0.5, timestamp: baseTime.add(Duration(milliseconds: 300))),
+    _createInteraction('stop', 0.500, 0.500, pressure: 0.5, timestamp: baseTime.add(Duration(milliseconds: 400))),
   ];
 }
 
@@ -399,42 +403,52 @@ List<UserInteractionProof> _generateNormalFrequencyInteractions() {
 }
 
 List<UserInteractionProof> _generateNaturalCoordinateInteractions() {
+  final baseTime = DateTime.now();
   return List.generate(
       5,
       (i) => _createInteraction(
             'touch',
             0.5 + (i - 2) * 0.001, // Small natural variation
             0.5 + (i - 2) * 0.002,
+            timestamp: baseTime.add(Duration(milliseconds: i * 150)), // Natural timing
           ));
 }
 
 List<UserInteractionProof> _generatePerfectCoordinateInteractions() {
+  final baseTime = DateTime.now();
   return List.generate(
-      5, (i) => _createInteraction('touch', 0.500000, 0.500000));
+      5, (i) => _createInteraction('touch', 0.500000, 0.500000,
+          timestamp: baseTime.add(Duration(milliseconds: i * 100)))); // Perfect timing
 }
 
 List<UserInteractionProof> _generateHandTremorInteractions() {
+  final baseTime = DateTime.now();
   return List.generate(
       12,
       (i) => _createInteraction(
             'touch',
             0.5 + 0.001 * (i % 2 == 0 ? 1 : -1), // 8Hz-like oscillation
             0.5 + 0.0005 * (i % 3 == 0 ? 1 : -1),
+            timestamp: baseTime.add(Duration(milliseconds: i * 125)), // ~8Hz oscillation timing
           ));
 }
 
 List<UserInteractionProof> _generateMicroVariationInteractions() {
+  final baseTime = DateTime.now();
   return List.generate(
       5,
       (i) => _createInteraction(
             'touch',
             0.5 + i * 0.0001, // Very small but distinct variations
             0.5 + i * 0.0002,
+            timestamp: baseTime.add(Duration(milliseconds: i * 120)), // Natural timing
           ));
 }
 
 List<UserInteractionProof> _generateBreathingInfluenceInteractions() {
-  return List.generate(8, (i) => _createInteraction('touch', 0.5, 0.5));
+  final baseTime = DateTime.now();
+  return List.generate(8, (i) => _createInteraction('touch', 0.5, 0.5,
+      timestamp: baseTime.add(Duration(milliseconds: i * 130)))); // Natural breathing-influenced timing
 }
 
 List<UserInteractionProof> _generateMalformedInteractions() {
@@ -454,19 +468,21 @@ List<UserInteractionProof> _generateExtremeCoordinateInteractions() {
 }
 
 List<UserInteractionProof> _generateLargeInteractionList(int count) {
+  final baseTime = DateTime.now();
   return List.generate(
       count,
       (i) => _createInteraction(
             'touch',
             0.5 + (i % 100) * 0.001,
             0.5 + (i % 100) * 0.001,
+            timestamp: baseTime.add(Duration(milliseconds: i * 100)), // Regular timing
           ));
 }
 
 UserInteractionProof _createInteraction(String type, double x, double y,
-    {double? pressure}) {
+    {double? pressure, DateTime? timestamp}) {
   return UserInteractionProof(
-    timestamp: DateTime.now(),
+    timestamp: timestamp ?? DateTime.now(),
     interactionType: type,
     coordinates: {'x': x, 'y': y},
     pressure: pressure,

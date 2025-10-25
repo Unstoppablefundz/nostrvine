@@ -72,6 +72,9 @@ class AppConstants {
   // NETWORK CONFIGURATION
   // ============================================================================
 
+  /// Default Nostr relay URL
+  static const String defaultRelayUrl = 'wss://relay.divine.video';
+
   /// Connection timeout for relay connections
   static const Duration relayConnectionTimeout = Duration(seconds: 30);
 

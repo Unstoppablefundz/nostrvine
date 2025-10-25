@@ -9,6 +9,7 @@ import 'package:flutter_embedded_nostr_relay/flutter_embedded_nostr_relay.dart'
 import 'package:logging/logging.dart' as logging;
 import 'package:nostr_sdk/event.dart';
 import 'package:nostr_sdk/filter.dart' as nostr;
+import 'package:openvine/constants/app_constants.dart';
 import 'package:openvine/models/nip94_metadata.dart';
 import 'package:openvine/services/crash_reporting_service.dart';
 import 'package:openvine/services/nostr_key_manager.dart';
@@ -66,7 +67,7 @@ class NostrServiceFunction implements INostrService {
         name: 'NostrServiceFunction', category: LogCategory.relay);
 
     // Ensure default relay is always included (for external relay connections)
-    final defaultRelay = 'wss://relay3.openvine.co';
+    final defaultRelay = AppConstants.defaultRelayUrl;
     final relaysToAdd = customRelays ?? [defaultRelay];
     if (!relaysToAdd.contains(defaultRelay)) {
       relaysToAdd.add(defaultRelay);
@@ -555,7 +556,7 @@ class NostrServiceFunction implements INostrService {
 
   @override
   bool get isVineRelayAuthenticated =>
-      isRelayAuthenticated('wss://relay3.openvine.co');
+      isRelayAuthenticated(AppConstants.defaultRelayUrl);
 
   @override
   void setAuthTimeout(Duration timeout) {
@@ -663,7 +664,7 @@ class NostrServiceFunction implements INostrService {
   @override
   String get primaryRelay => _configuredRelays.isNotEmpty
       ? _configuredRelays.first
-      : 'wss://relay3.openvine.co';
+      : AppConstants.defaultRelayUrl;
 
   @override
   Future<Map<String, dynamic>?> getRelayStats() async {

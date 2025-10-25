@@ -9,6 +9,7 @@ import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/camera_fab.dart';
 import 'package:openvine/widgets/vine_bottom_nav.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Screen for managing Nostr relay settings
 class RelaySettingsScreen extends ConsumerStatefulWidget {
@@ -38,18 +39,43 @@ class _RelaySettingsScreenState extends ConsumerState<RelaySettingsScreen> {
       backgroundColor: Colors.black,
       body: Column(
         children: [
-          // Info banner
+          // Info banner with instructions
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.grey[900],
-            child: const Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, color: Colors.grey, size: 20),
-                SizedBox(width: 12),
-                Expanded(
+                const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Divine is an open system - you control your connections',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'These external relays sync with your embedded relay to distribute your content across the decentralized Nostr network. You can add or remove relays as you wish.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => _launchNostrDocs(),
                   child: Text(
-                    'These are external relays that sync with your embedded relay',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                    'Learn more about Nostr →',
+                    style: TextStyle(
+                      color: VineTheme.vineGreen,
+                      fontSize: 13,
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
                 ),
               ],
@@ -94,20 +120,40 @@ class _RelaySettingsScreenState extends ConsumerState<RelaySettingsScreen> {
                   )
                 : Column(
                     children: [
-                      // Retry button at the top if relays exist but not connected
+                      // Action buttons at the top
                       Container(
                         padding: const EdgeInsets.all(16),
-                        child: ElevatedButton.icon(
-                          onPressed: () => _retryConnection(),
-                          icon: const Icon(Icons.refresh, color: Colors.white),
-                          label: const Text('Retry Connection',
-                              style: TextStyle(color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: VineTheme.vineGreen,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 12),
-                            minimumSize: const Size(double.infinity, 44),
-                          ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showAddRelayDialog(),
+                                icon: const Icon(Icons.add, color: Colors.white),
+                                label: const Text('Add Relay',
+                                    style: TextStyle(color: Colors.white)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: VineTheme.vineGreen,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _retryConnection(),
+                                icon:
+                                    const Icon(Icons.refresh, color: Colors.white),
+                                label: const Text('Retry',
+                                    style: TextStyle(color: Colors.white)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.grey[700],
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 12),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Expanded(
@@ -192,6 +238,9 @@ class _RelaySettingsScreenState extends ConsumerState<RelaySettingsScreen> {
       final nostrService = ref.read(nostrServiceProvider);
       await nostrService.removeRelay(relayUrl);
 
+      // Force UI refresh by invalidating the provider
+      ref.invalidate(nostrServiceProvider);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -258,6 +307,120 @@ class _RelaySettingsScreenState extends ConsumerState<RelaySettingsScreen> {
     } catch (e) {
       Log.error('Failed to retry connection: $e', name: 'RelaySettingsScreen');
       _showError('Connection retry failed: ${e.toString()}');
+    }
+  }
+
+  Future<void> _showAddRelayDialog() async {
+    final controller = TextEditingController();
+
+    final relayUrl = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'Add Relay',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the WebSocket URL of the relay you want to add:',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'wss://relay.example.com',
+                hintStyle: TextStyle(color: Colors.grey[600]),
+                border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey[700]!),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: VineTheme.vineGreen),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(null),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey[400]),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final url = controller.text.trim();
+              if (url.isNotEmpty) {
+                Navigator.of(dialogContext).pop(url);
+              }
+            },
+            child: const Text(
+              'Add',
+              style: TextStyle(color: VineTheme.vineGreen),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (relayUrl == null || relayUrl.isEmpty) return;
+
+    // Validate URL format
+    if (!relayUrl.startsWith('wss://') && !relayUrl.startsWith('ws://')) {
+      _showError('Relay URL must start with wss:// or ws://');
+      return;
+    }
+
+    try {
+      final nostrService = ref.read(nostrServiceProvider);
+      final success = await nostrService.addRelay(relayUrl);
+
+      if (success) {
+        // Force UI refresh by invalidating the provider
+        ref.invalidate(nostrServiceProvider);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Added relay: $relayUrl'),
+              backgroundColor: Colors.green[700],
+            ),
+          );
+        }
+
+        Log.info('Successfully added relay: $relayUrl',
+            name: 'RelaySettingsScreen');
+      } else {
+        _showError('Failed to add relay. Please check the URL and try again.');
+      }
+    } catch (e) {
+      Log.error('Failed to add relay: $e', name: 'RelaySettingsScreen');
+      _showError('Failed to add relay: ${e.toString()}');
+    }
+  }
+
+  Future<void> _launchNostrDocs() async {
+    final url = Uri.parse('https://nostr.com');
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        _showError('Could not open browser');
+      }
+    } catch (e) {
+      Log.error('Failed to launch URL: $e', name: 'RelaySettingsScreen');
+      _showError('Failed to open link');
     }
   }
 }

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Default Relay (2025-10-25)
+
+#### Configuration Changes
+- **Changed default Nostr relay from `wss://relay3.openvine.co` to `wss://relay.divine.video`**
+  - Centralized relay URL in `AppConstants.defaultRelayUrl` constant
+  - Updated all service files to use the constant instead of hardcoded URLs
+  - Ensures consistency across native app, web version, and background scripts
+
+#### Files Modified
+- `lib/constants/app_constants.dart` - Added `defaultRelayUrl` constant
+- `lib/services/nostr_service.dart` - Uses `AppConstants.defaultRelayUrl`
+- `lib/services/nostr_service_web.dart` - Uses `AppConstants.defaultRelayUrl`
+- `lib/services/nostr_service_function.dart` - Uses `AppConstants.defaultRelayUrl`
+- `lib/services/analytics_api_service.dart` - Uses `AppConstants.defaultRelayUrl`
+- `lib/scripts/bulk_thumbnail_generator.dart` - Uses `AppConstants.defaultRelayUrl`
+
+#### Technical Benefits
+- Single source of truth for default relay configuration
+- Easier to update relay URL in future (change one constant)
+- Consistent relay usage across all app implementations
+- No more scattered hardcoded relay URLs throughout codebase
+
 ### Fixed - iOS Build Failure (2025-10-25)
 
 #### Bug Fixes

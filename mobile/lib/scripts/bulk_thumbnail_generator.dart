@@ -1,8 +1,9 @@
 // ABOUTME: Bulk thumbnail generation script for videos without thumbnails
-// ABOUTME: Fetches video events from relay1.openvine.co and generates thumbnails via API service
+// ABOUTME: Fetches video events from default relay and generates thumbnails via API service
 
 import 'dart:io';
 import 'package:nostr_sdk/filter.dart';
+import 'package:openvine/constants/app_constants.dart';
 import 'package:openvine/models/video_event.dart';
 import 'package:openvine/services/nostr_service.dart';
 import 'package:openvine/services/nostr_key_manager.dart';
@@ -12,12 +13,12 @@ import 'package:openvine/utils/unified_logger.dart';
 /// Bulk thumbnail generation script
 ///
 /// This script:
-/// 1. Connects to relay1.openvine.co relay to fetch video events
+/// 1. Connects to default relay to fetch video events
 /// 2. Filters events that don't have thumbnails
 /// 3. Makes API requests to generate thumbnails via api.openvine.co thumbnail service
 /// 4. Reports progress and statistics
 class BulkThumbnailGenerator {
-  static const String relayUrl = 'wss://relay1.openvine.co';
+  static final String relayUrl = AppConstants.defaultRelayUrl;
   static const String apiBaseUrl = 'https://api.openvine.co';
   static const int batchSize =
       10; // Process videos in batches to avoid overwhelming the server
