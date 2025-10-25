@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/models/video_event.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/providers/profile_feed_provider.dart';
@@ -40,7 +41,7 @@ class ProfileScreenRouter extends ConsumerStatefulWidget {
 }
 
 class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, VideoPrefetchMixin {
   late TabController _tabController;
   final ScrollController _scrollController = ScrollController();
   PageController? _videoController;  // For fullscreen video mode
@@ -206,6 +207,9 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
                   if (newIndex >= videos.length - 2) {
                     ref.read(profileFeedProvider(userIdHex).notifier).loadMore();
                   }
+
+                  // Prefetch videos around current index
+                  checkForPrefetch(currentIndex: newIndex, videos: videos);
                 },
                 itemBuilder: (context, index) {
                   if (index >= videos.length) return const SizedBox.shrink();

@@ -16,6 +16,9 @@ void main() {
       ),
     );
 
+    // Wait for widget to fully build and image to fail
+    await tester.pumpAndSettle();
+
     // Placeholder should render initial from name 'Foo' => 'F'
     expect(find.text('F'), findsOneWidget);
   });

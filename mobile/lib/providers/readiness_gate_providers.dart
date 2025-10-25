@@ -11,7 +11,7 @@ part 'readiness_gate_providers.g.dart';
 
 /// State notifier that tracks Nostr service initialization status
 /// Provides reactive updates when initialization state changes
-@riverpod
+@Riverpod(keepAlive: true)
 class NostrInitialization extends _$NostrInitialization {
   @override
   bool build() {
@@ -51,7 +51,19 @@ bool appReady(Ref ref) {
 @riverpod
 bool isDiscoveryTabActive(Ref ref) {
   final context = ref.watch(pageContextProvider);
-  return context.whenOrNull(
-    data: (ctx) => ctx.type == RouteType.explore,
+  final isActive = context.whenOrNull(
+    data: (ctx) {
+      final active = ctx.type == RouteType.explore;
+      Log.debug('[GATE] 🎯 isDiscoveryTabActive: $active (route: ${ctx.type}, hasVideoIndex: ${ctx.videoIndex != null})',
+          name: 'ReadinessGates', category: LogCategory.system);
+      return active;
+    },
   ) ?? false;
+
+  if (!isActive) {
+    Log.debug('[GATE] 🎯 isDiscoveryTabActive: false (context state: ${context.runtimeType})',
+        name: 'ReadinessGates', category: LogCategory.system);
+  }
+
+  return isActive;
 }

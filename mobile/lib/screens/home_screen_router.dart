@@ -4,8 +4,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/providers/home_screen_controllers.dart';
 import 'package:openvine/providers/route_feed_providers.dart';
+import 'package:openvine/providers/social_providers.dart' as social;
 import 'package:openvine/providers/user_profile_providers.dart';
 import 'package:openvine/router/page_context_provider.dart';
 import 'package:openvine/router/route_utils.dart';
@@ -20,7 +22,7 @@ class HomeScreenRouter extends ConsumerStatefulWidget {
   ConsumerState<HomeScreenRouter> createState() => _HomeScreenRouterState();
 }
 
-class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter> {
+class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter> with VideoPrefetchMixin {
   PageController? _controller;
   int? _lastUrlIndex;
   int? _lastPrefetchIndex;
@@ -33,6 +35,16 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter> {
 
   @override
   Widget build(BuildContext context) {
+    // Check if user follows anyone - redirect to explore if not
+    final socialState = ref.watch(social.socialProvider);
+    if (socialState.isInitialized && socialState.followingPubkeys.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.go('/explore');
+        }
+      });
+    }
+
     // Read derived context from router
     final pageContext = ref.watch(pageContextProvider);
 
@@ -142,6 +154,9 @@ class _HomeScreenRouterState extends ConsumerState<HomeScreenRouter> {
                   if (newIndex >= itemCount - 2) {
                     ref.read(homePaginationControllerProvider).maybeLoadMore();
                   }
+
+                  // Prefetch videos around current index
+                  checkForPrefetch(currentIndex: newIndex, videos: videos);
 
                   Log.debug('📄 Page changed to index $newIndex (${videos[newIndex].id}...)',
                       name: 'HomeScreenRouter', category: LogCategory.video);

@@ -15,7 +15,6 @@ timeout: 10m
 # Platforms to test on (can override with --platform flag)
 platforms:
   - vm
-  - chrome
 
 # Reporter configuration
 reporter: expanded

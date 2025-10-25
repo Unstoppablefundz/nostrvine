@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/router/page_context_provider.dart';
 import 'package:openvine/router/route_utils.dart';
 import 'package:openvine/providers/video_events_providers.dart';
@@ -17,7 +18,7 @@ class ExploreScreenRouter extends ConsumerStatefulWidget {
       _ExploreScreenRouterState();
 }
 
-class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter> {
+class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter> with VideoPrefetchMixin {
   PageController? _controller;
   int? _lastUrlIndex;
 
@@ -83,6 +84,9 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter> {
                     RouteContext(type: RouteType.explore, videoIndex: newIndex),
                   ));
                 }
+
+                // Prefetch videos around current index
+                checkForPrefetch(currentIndex: newIndex, videos: videos);
               },
               itemBuilder: (context, index) {
                 final video = videos[index];

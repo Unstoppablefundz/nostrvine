@@ -52,10 +52,18 @@ class VideoEvents extends _$VideoEvents {
     final seenVideosState = ref.watch(seenVideosProvider);
 
     Log.info(
-      'VideoEvents: Provider built (appReady: $isAppReady, tabActive: $isTabActive, cached: ${videoEventService.discoveryVideos.length})',
+      '📺 VideoEvents: Provider built (appReady: $isAppReady, tabActive: $isTabActive, cached: ${videoEventService.discoveryVideos.length})',
       name: 'VideoEventsProvider',
       category: LogCategory.video,
     );
+
+    // Extra debug logging to understand state
+    Log.debug('  🔍 appReadyProvider state: $isAppReady',
+        name: 'VideoEventsProvider', category: LogCategory.video);
+    Log.debug('  🔍 isDiscoveryTabActiveProvider state: $isTabActive',
+        name: 'VideoEventsProvider', category: LogCategory.video);
+    Log.debug('  🔍 discoveryVideos cached: ${videoEventService.discoveryVideos.length}',
+        name: 'VideoEventsProvider', category: LogCategory.video);
 
     // Register cleanup handler ONCE at the top
     ref.onDispose(() {
@@ -70,21 +78,10 @@ class VideoEvents extends _$VideoEvents {
     // Setup listeners to react to gate changes
     _setupGateListeners(videoEventService, seenVideosState);
 
-    // Start subscription if ready, otherwise emit empty
-    if (isAppReady && isTabActive) {
-      _startSubscription(videoEventService, seenVideosState);
-    } else {
-      Log.info(
-        'VideoEvents: Not ready - returning empty (will retry when gates flip)',
-        name: 'VideoEventsProvider',
-        category: LogCategory.video,
-      );
-      Future.microtask(() {
-        if (_canEmit) {
-          _controller!.add(<VideoEvent>[]);
-        }
-      });
-    }
+    // ALWAYS start subscription to load videos (database-first + Nostr)
+    // This works even when gates are false - it will load from database
+    // and skip Nostr subscription until gates flip true
+    _startSubscription(videoEventService, seenVideosState);
 
     return _controller!.stream;
   }
@@ -141,7 +138,7 @@ class VideoEvents extends _$VideoEvents {
     // This prevents duplicate listeners and ensures clean state
     service.removeListener(_onVideoEventServiceChange);
     service.addListener(_onVideoEventServiceChange);
-    Log.info('VideoEvents: Listener attached to service ${service.hashCode}, hasListeners=${service.hasListeners}',
+    Log.info('VideoEvents: Listener attached to service ${service.hashCode}',
         name: 'VideoEventsProvider', category: LogCategory.video);
 
     // Subscribe to discovery videos if not already subscribed

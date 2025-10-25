@@ -279,19 +279,19 @@ class VideoEventService extends ChangeNotifier {
 
   /// DEBUG: Dump all events with cdn.divine.video thumbnails
   void debugDumpCdnDivineVideoThumbnails() {
-    Log.warning('🔍 DEBUG: Searching all loaded events for cdn.divine.video thumbnails...',
-        name: 'VideoEventService', category: LogCategory.video);
+    // Log.warning('🔍 DEBUG: Searching all loaded events for cdn.divine.video thumbnails...',
+    //     name: 'VideoEventService', category: LogCategory.video);
 
     int count = 0;
     for (final entry in _eventLists.entries) {
       for (final video in entry.value) {
         if (video.thumbnailUrl?.contains('cdn.divine.video') == true) {
           count++;
-          Log.warning('🔍 FOUND #$count:', name: 'VideoEventService', category: LogCategory.video);
-          Log.warning('  Event ID: ${video.id}', name: 'VideoEventService', category: LogCategory.video);
-          Log.warning('  Video URL: ${video.videoUrl}', name: 'VideoEventService', category: LogCategory.video);
-          Log.warning('  Thumbnail: ${video.thumbnailUrl}', name: 'VideoEventService', category: LogCategory.video);
-          Log.warning('  Subscription Type: ${entry.key}', name: 'VideoEventService', category: LogCategory.video);
+          // Log.warning('🔍 FOUND #$count:', name: 'VideoEventService', category: LogCategory.video);
+          // Log.warning('  Event ID: ${video.id}', name: 'VideoEventService', category: LogCategory.video);
+          // Log.warning('  Video URL: ${video.videoUrl}', name: 'VideoEventService', category: LogCategory.video);
+          // Log.warning('  Thumbnail: ${video.thumbnailUrl}', name: 'VideoEventService', category: LogCategory.video);
+          // Log.warning('  Subscription Type: ${entry.key}', name: 'VideoEventService', category: LogCategory.video);
         }
       }
     }
@@ -2689,10 +2689,10 @@ class VideoEventService extends ChangeNotifier {
 
     // VideoManager integration removed - using pure Riverpod architecture
 
-    Log.debug(
-        '✅ Added $subscriptionType video: ${videoEvent.title ?? videoEvent.id} (total: ${eventList.length})',
-        name: 'VideoEventService',
-        category: LogCategory.video);
+    // Log.debug(
+    //     '✅ Added $subscriptionType video: ${videoEvent.title ?? videoEvent.id} (total: ${eventList.length})',
+    //     name: 'VideoEventService',
+    //     category: LogCategory.video);
 
     // Track metrics for progressive loading
     _totalEventsReceived++;

@@ -26,7 +26,7 @@ final class NostrInitializationProvider
         argument: null,
         retry: null,
         name: r'nostrInitializationProvider',
-        isAutoDispose: true,
+        isAutoDispose: false,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -48,7 +48,7 @@ final class NostrInitializationProvider
 }
 
 String _$nostrInitializationHash() =>
-    r'e40e826b65db307d943b6a6e90e28685f63280d0';
+    r'c2bf07fd5276b7f1749f087d5a231544aa985a54';
 
 /// State notifier that tracks Nostr service initialization status
 /// Provides reactive updates when initialization state changes
@@ -207,4 +207,4 @@ final class IsDiscoveryTabActiveProvider
 }
 
 String _$isDiscoveryTabActiveHash() =>
-    r'65a27a8efdc1f02b884368872ebc4978fabf0044';
+    r'daecf924ea41f6790fce17118342534ced074413';

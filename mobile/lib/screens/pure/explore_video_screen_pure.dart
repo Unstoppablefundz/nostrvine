@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/models/video_event.dart';
 import 'package:openvine/providers/route_feed_providers.dart';
 import 'package:openvine/router/nav_extensions.dart';
@@ -32,7 +33,7 @@ class ExploreVideoScreenPure extends ConsumerStatefulWidget {
 }
 
 class _ExploreVideoScreenPureState extends ConsumerState<ExploreVideoScreenPure>
-    with PaginationMixin {
+    with PaginationMixin, VideoPrefetchMixin {
   late int _initialIndex;
 
   @override
@@ -96,6 +97,9 @@ class _ExploreVideoScreenPureState extends ConsumerState<ExploreVideoScreenPure>
                 onLoadMore: widget.onLoadMore!,
               );
             }
+
+            // Prefetch videos around current index
+            checkForPrefetch(currentIndex: index, videos: videos);
           },
           itemBuilder: (context, index) {
             return VideoFeedItem(
