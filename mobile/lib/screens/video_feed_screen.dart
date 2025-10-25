@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/async_value_ui_helpers_mixin.dart';
 import 'package:openvine/mixins/pagination_mixin.dart';
 import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/models/video_event.dart';
@@ -91,7 +92,7 @@ class VideoFeedScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
-    with WidgetsBindingObserver, PaginationMixin, VideoPrefetchMixin {
+    with WidgetsBindingObserver, PaginationMixin, VideoPrefetchMixin, AsyncValueUIHelpersMixin {
   late PageController _pageController;
   int _currentIndex = 0;
   bool _isRefreshing = false; // Track if feed is currently refreshing
@@ -328,18 +329,19 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
 
     // The single video controller is instantiated via VideoFeedItem widgets
 
-    return videoFeedAsync.when(
-      loading: () {
+    return buildAsyncUI(
+      videoFeedAsync,
+      onLoading: () {
         Log.info('🎬 VideoFeedScreen: Showing loading state',
             name: 'VideoFeedScreen', category: LogCategory.ui);
         return _buildLoadingState();
       },
-      error: (error, stackTrace) {
+      onError: (error, stackTrace) {
         Log.error('🎬 VideoFeedScreen: Error state - $error',
             name: 'VideoFeedScreen', category: LogCategory.ui);
         return _buildErrorState(error.toString());
       },
-      data: (feedState) {
+      onData: (feedState) {
         final videos = feedState.videos;
 
         if (videos.isEmpty) {

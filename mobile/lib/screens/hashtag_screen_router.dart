@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:openvine/mixins/async_value_ui_helpers_mixin.dart';
 import 'package:openvine/providers/hashtag_feed_providers.dart';
 import 'package:openvine/router/page_context_provider.dart';
 import 'package:openvine/router/route_utils.dart';
@@ -12,11 +13,17 @@ import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 
 /// Router-aware hashtag screen that shows grid or feed based on route
-class HashtagScreenRouter extends ConsumerWidget {
+class HashtagScreenRouter extends ConsumerStatefulWidget {
   const HashtagScreenRouter({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HashtagScreenRouter> createState() => _HashtagScreenRouterState();
+}
+
+class _HashtagScreenRouterState extends ConsumerState<HashtagScreenRouter>
+    with AsyncValueUIHelpersMixin {
+  @override
+  Widget build(BuildContext context) {
     final routeCtx = ref.watch(pageContextProvider).asData?.value;
 
     if (routeCtx == null || routeCtx.type != RouteType.hashtag) {
@@ -48,17 +55,18 @@ class HashtagScreenRouter extends ConsumerWidget {
     // Watch the hashtag feed provider to get videos
     final feedStateAsync = ref.watch(hashtagFeedProvider);
 
-    return feedStateAsync.when(
-      loading: () => const Center(
+    return buildAsyncUI(
+      feedStateAsync,
+      onLoading: () => const Center(
         child: CircularProgressIndicator(color: VineTheme.vineGreen),
       ),
-      error: (err, stack) => Center(
+      onError: (err, stack) => Center(
         child: Text(
           'Error loading hashtag videos: $err',
           style: const TextStyle(color: VineTheme.whiteText),
         ),
       ),
-      data: (feedState) {
+      onData: (feedState) {
         final videos = feedState.videos;
 
         if (videos.isEmpty) {

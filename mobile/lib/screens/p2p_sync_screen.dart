@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:openvine/theme/vine_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:openvine/mixins/async_value_ui_helpers_mixin.dart';
 import 'package:openvine/providers/p2p_sync_provider.dart';
 import 'package:openvine/services/p2p_discovery_service.dart';
 import 'package:openvine/widgets/camera_fab.dart';
@@ -16,7 +17,7 @@ class P2PSyncScreen extends ConsumerStatefulWidget {
   ConsumerState<P2PSyncScreen> createState() => _P2PSyncScreenState();
 }
 
-class _P2PSyncScreenState extends ConsumerState<P2PSyncScreen> {
+class _P2PSyncScreenState extends ConsumerState<P2PSyncScreen> with AsyncValueUIHelpersMixin {
   @override
   Widget build(BuildContext context) {
     final syncStatus = ref.watch(p2pSyncStatusProvider);
@@ -30,10 +31,10 @@ class _P2PSyncScreenState extends ConsumerState<P2PSyncScreen> {
         foregroundColor: VineTheme.whiteText,
       ),
       backgroundColor: Colors.black,
-      body: syncStatus.when(
-        data: (status) => _buildSyncContent(context, status, peers, actions),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
+      body: buildAsyncUI(
+        syncStatus,
+        onData: (status) => _buildSyncContent(context, status, peers, actions),
+        onError: (error, stack) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -251,12 +252,12 @@ class _P2PSyncScreenState extends ConsumerState<P2PSyncScreen> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: peers.when(
-              data: (peersList) => peersList.isEmpty
+            child: buildAsyncUI(
+              peers,
+              onData: (peersList) => peersList.isEmpty
                   ? _buildEmptyPeersState(context)
                   : _buildPeersList(context, peersList, actions),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stack) => Center(
+              onError: (error, stack) => Center(
                 child: Text('Error loading peers: $error'),
               ),
             ),

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/async_value_ui_helpers_mixin.dart';
 import 'package:openvine/mixins/page_controller_sync_mixin.dart';
 import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/models/video_event.dart';
@@ -42,7 +43,7 @@ class ProfileScreenRouter extends ConsumerStatefulWidget {
 }
 
 class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
-    with TickerProviderStateMixin, VideoPrefetchMixin, PageControllerSyncMixin {
+    with TickerProviderStateMixin, VideoPrefetchMixin, PageControllerSyncMixin, AsyncValueUIHelpersMixin {
   late TabController _tabController;
   final ScrollController _scrollController = ScrollController();
   PageController? _videoController;  // For fullscreen video mode
@@ -93,8 +94,9 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
     // Read derived context from router
     final pageContext = ref.watch(pageContextProvider);
 
-    return pageContext.when(
-      data: (ctx) {
+    return buildAsyncUI(
+      pageContext,
+      onData: (ctx) {
         // Only handle profile routes
         if (ctx.type != RouteType.profile) {
           return const Center(child: Text('Not a profile route'));
@@ -159,8 +161,9 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
         final videoIndex = ctx.videoIndex;
 
         // Show main profile UI
-        return videosAsync.when(
-          data: (state) {
+        return buildAsyncUI(
+          videosAsync,
+          onData: (state) {
             final videos = state.videos;
             final socialService = ref.watch(socialServiceProvider);
 
@@ -298,14 +301,8 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
               ],
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, stack) => Center(
-            child: Text('Error: $error'),
-          ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(child: Text('Error: $error')),
     );
   }
 

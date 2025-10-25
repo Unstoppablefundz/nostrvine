@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:openvine/mixins/async_value_ui_helpers_mixin.dart';
 import 'package:openvine/mixins/page_controller_sync_mixin.dart';
 import 'package:openvine/mixins/video_prefetch_mixin.dart';
 import 'package:openvine/router/page_context_provider.dart';
@@ -20,7 +21,7 @@ class ExploreScreenRouter extends ConsumerStatefulWidget {
 }
 
 class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
-    with VideoPrefetchMixin, PageControllerSyncMixin {
+    with VideoPrefetchMixin, PageControllerSyncMixin, AsyncValueUIHelpersMixin {
   PageController? _controller;
   int? _lastUrlIndex;
 
@@ -35,8 +36,9 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
     // Read derived context from router
     final pageContext = ref.watch(pageContextProvider);
 
-    return pageContext.when(
-      data: (ctx) {
+    return buildAsyncUI(
+      pageContext,
+      onData: (ctx) {
         // Only handle explore routes
         if (ctx.type != RouteType.explore) {
           return const Center(child: Text('Not an explore route'));
@@ -47,8 +49,9 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
         // Get video data
         final videosAsync = ref.watch(videoEventsProvider);
 
-        return videosAsync.when(
-          data: (videos) {
+        return buildAsyncUI(
+          videosAsync,
+          onData: (videos) {
             if (videos.isEmpty) {
               return const Center(child: Text('No videos available'));
             }
@@ -125,14 +128,8 @@ class _ExploreScreenRouterState extends ConsumerState<ExploreScreenRouter>
               },
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, stack) => Center(
-            child: Text('Error: $error'),
-          ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(child: Text('Error: $error')),
     );
   }
 }
