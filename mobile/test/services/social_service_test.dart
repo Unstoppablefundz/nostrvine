@@ -315,54 +315,43 @@ void main() {
       const testEventId = 'test_event_id_123';
 
       test('should fetch like count from network', () async {
-        // Mock subscription stream
-        final controller = Stream<Event>.fromIterable([
-          () {
-            const pk1 =
-                '1111111111111111111111111111111111111111111111111111111111111111';
-            final pub1 = getPublicKey(pk1);
-            final e1 = Event(
-                pub1,
-                7,
-                [
-                  ['e', testEventId]
-                ],
-                '+');
-            e1.sign(pk1);
-            return e1;
-          }(),
-          () {
-            const pk2 =
-                '2222222222222222222222222222222222222222222222222222222222222222';
-            final pub2 = getPublicKey(pk2);
-            final e2 = Event(
-                pub2,
-                7,
-                [
-                  ['e', testEventId]
-                ],
-                '+');
-            e2.sign(pk2);
-            return e2;
-          }(),
-          () {
-            const pk3 =
-                '3333333333333333333333333333333333333333333333333333333333333333';
-            final pub3 = getPublicKey(pk3);
-            final e3 = Event(
-                pub3,
-                7,
-                [
-                  ['e', testEventId]
-                ],
-                '-');
-            e3.sign(pk3);
-            return e3;
-          }(), // Should not count
-        ]);
+        // Mock createSubscription to simulate like count subscription
+        when(mockSubscriptionManager.createSubscription(
+          name: 'like_count_$testEventId',
+          filters: anyNamed('filters'),
+          onEvent: anyNamed('onEvent'),
+          onError: anyNamed('onError'),
+          onComplete: anyNamed('onComplete'),
+          timeout: anyNamed('timeout'),
+          priority: anyNamed('priority'),
+        )).thenAnswer((invocation) async {
+          final onEvent = invocation.namedArguments[Symbol('onEvent')] as Function;
+          final onComplete = invocation.namedArguments[Symbol('onComplete')] as Function;
 
-        when(mockNostrService.subscribeToEvents(filters: anyNamed('filters')))
-            .thenAnswer((_) => controller);
+          // Simulate 2 like events and 1 non-like event
+          const pk1 = '1111111111111111111111111111111111111111111111111111111111111111';
+          final pub1 = getPublicKey(pk1);
+          final e1 = Event(pub1, 7, [['e', testEventId]], '+');
+          e1.sign(pk1);
+          onEvent(e1);
+
+          const pk2 = '2222222222222222222222222222222222222222222222222222222222222222';
+          final pub2 = getPublicKey(pk2);
+          final e2 = Event(pub2, 7, [['e', testEventId]], '+');
+          e2.sign(pk2);
+          onEvent(e2);
+
+          const pk3 = '3333333333333333333333333333333333333333333333333333333333333333';
+          final pub3 = getPublicKey(pk3);
+          final e3 = Event(pub3, 7, [['e', testEventId]], '-');
+          e3.sign(pk3);
+          onEvent(e3); // Should not count
+
+          // Complete the subscription
+          onComplete();
+
+          return 'like_count_subscription_id';
+        });
 
         // Test fetching like status
         final result = await socialService.getLikeStatus(testEventId);
@@ -372,19 +361,63 @@ void main() {
       });
 
       test('should return cached like count when available', () async {
-        // This test would require access to private _likeCounts map
-        // In a real implementation, we might need a public setter for testing
-        // or dependency injection of the cache
+        // First call: fetch from network and cache
+        when(mockSubscriptionManager.createSubscription(
+          name: 'like_count_$testEventId',
+          filters: anyNamed('filters'),
+          onEvent: anyNamed('onEvent'),
+          onError: anyNamed('onError'),
+          onComplete: anyNamed('onComplete'),
+          timeout: anyNamed('timeout'),
+          priority: anyNamed('priority'),
+        )).thenAnswer((invocation) async {
+          final onEvent = invocation.namedArguments[Symbol('onEvent')] as Function;
+          final onComplete = invocation.namedArguments[Symbol('onComplete')] as Function;
 
-        // For now, we test the behavior through getLikeStatus
-        when(mockAuthService.isAuthenticated).thenReturn(true);
-        when(mockAuthService.currentPublicKeyHex).thenReturn('test_user');
+          // Simulate 3 like events
+          const pk1 = '1111111111111111111111111111111111111111111111111111111111111111';
+          final pub1 = getPublicKey(pk1);
+          final e1 = Event(pub1, 7, [['e', testEventId]], '+');
+          e1.sign(pk1);
+          onEvent(e1);
 
-        final result = await socialService.getLikeStatus(testEventId);
+          const pk2 = '2222222222222222222222222222222222222222222222222222222222222222';
+          final pub2 = getPublicKey(pk2);
+          final e2 = Event(pub2, 7, [['e', testEventId]], '+');
+          e2.sign(pk2);
+          onEvent(e2);
 
-        // Should return default values when no cache exists
-        expect(result['count'], 0);
-        expect(result['user_liked'], false);
+          const pk3 = '3333333333333333333333333333333333333333333333333333333333333333';
+          final pub3 = getPublicKey(pk3);
+          final e3 = Event(pub3, 7, [['e', testEventId]], '+');
+          e3.sign(pk3);
+          onEvent(e3);
+
+          onComplete();
+
+          return 'like_count_subscription_id';
+        });
+
+        // First call - should fetch from network
+        final result1 = await socialService.getLikeStatus(testEventId);
+        expect(result1['count'], 3);
+        expect(result1['user_liked'], false);
+
+        // Second call - should use cache (no new subscription created)
+        final result2 = await socialService.getLikeStatus(testEventId);
+        expect(result2['count'], 3); // Should return cached value
+        expect(result2['user_liked'], false);
+
+        // Verify createSubscription was only called once (for the first request)
+        verify(mockSubscriptionManager.createSubscription(
+          name: 'like_count_$testEventId',
+          filters: anyNamed('filters'),
+          onEvent: anyNamed('onEvent'),
+          onError: anyNamed('onError'),
+          onComplete: anyNamed('onComplete'),
+          timeout: anyNamed('timeout'),
+          priority: anyNamed('priority'),
+        )).called(1);
       });
     });
 
@@ -549,6 +582,10 @@ void main() {
         );
         contactListEvent.sign(privateKey);
 
+        // Mock authenticated user with matching public key
+        when(mockAuthService.isAuthenticated).thenReturn(true);
+        when(mockAuthService.currentPublicKeyHex).thenReturn(publicKey);
+
         when(mockNostrService.subscribeToEvents(filters: anyNamed('filters')))
             .thenAnswer((_) => Stream.fromIterable([contactListEvent]));
 
@@ -590,6 +627,7 @@ void main() {
             tags: [
               ['p', testTargetPubkey]
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => mockContactListEvent);
 
@@ -647,6 +685,7 @@ void main() {
             kind: 3,
             content: '',
             tags: [],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => mockEmptyContactListEvent);
 
@@ -775,14 +814,14 @@ void main() {
       });
 
       test('should fetch follower stats from network', () async {
-        const targetPubkey = 'target_pubkey';
+        // Use a known private key for target user so pubkey matches
+        const targetPrivateKey =
+            '5555555555555555555555555555555555555555555555555555555555555555';
+        final targetPubkey = getPublicKey(targetPrivateKey);
 
-        // Mock user's Kind 3 event (following count)
-        const privateKey =
-            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-        final publicKey = getPublicKey(privateKey);
+        // Mock target user's Kind 3 event (following count)
         final userContactList = Event(
-          publicKey,
+          targetPubkey,
           3,
           [
             ['p', 'pubkey1'],
@@ -791,7 +830,7 @@ void main() {
           ],
           '',
         );
-        userContactList.sign(privateKey);
+        userContactList.sign(targetPrivateKey);
 
         // Mock followers' Kind 3 events that mention target user
         final followerEvents = <Event>[
@@ -1189,6 +1228,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => mockDeletionEvent);
 
@@ -1220,6 +1260,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).called(1);
 
@@ -1275,6 +1316,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => null);
 
@@ -1335,6 +1377,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => mockDeletionEvent);
 
@@ -1406,6 +1449,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).thenAnswer((_) async => mockDeletionEvent);
 
@@ -1436,6 +1480,7 @@ void main() {
               ['k', '7'],
               ['k', '34236'],
             ],
+            biometricPrompt: anyNamed('biometricPrompt'),
           ),
         ).called(1);
 
