@@ -174,7 +174,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'What is Nostr?',
+                        'What is diVine?',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -183,7 +183,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Nostr is a decentralized protocol that gives you control over your data and identity. Your identity is portable across all Nostr apps.',
+                        'diVine is reviving the dream of 6 second looping videos, by and for humans. Do it for the vine!',
                         style: TextStyle(
                           color: Colors.grey[300],
                           fontSize: 14,
