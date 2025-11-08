@@ -1137,6 +1137,23 @@ class VineRecordingController {
     }
   }
 
+  /// Build FFmpeg crop filter for the specified aspect ratio
+  ///
+  /// Square: Center crop to 1:1 (minimum dimension)
+  /// Vertical: Center crop to 9:16 (portrait)
+  String _buildCropFilter(model.AspectRatio aspectRatio) {
+    switch (aspectRatio) {
+      case model.AspectRatio.square:
+        // Center crop to 1:1 (existing production logic)
+        return "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2";
+
+      case model.AspectRatio.vertical:
+        // Center crop to 9:16 vertical
+        // Tested and validated with FFmpeg integration tests
+        return "crop='if(gt(iw/ih\\,9/16)\\,ih*9/16\\,iw)':'if(gt(iw/ih\\,9/16)\\,ih\\,iw*16/9)':'(iw-if(gt(iw/ih\\,9/16)\\,ih*9/16\\,iw))/2':'(ih-if(gt(iw/ih\\,9/16)\\,ih\\,iw*16/9))/2'";
+    }
+  }
+
   /// Concatenate multiple video segments using FFmpeg (mobile/desktop only)
   /// NOTE: Android currently uses continuous recording (no segmentation) due to FFmpeg build issues
   Future<File?> _concatenateSegments(List<RecordingSegment> segments) async {
@@ -1169,7 +1186,8 @@ class VineRecordingController {
       final outputPath =
           '${tempDir.path}/vine_final_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-      final command = '-i "$inputPath" -vf "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2" -c:a copy "$outputPath"';
+      final cropFilter = _buildCropFilter(_aspectRatio);
+      final command = '-i "$inputPath" -vf "$cropFilter" -c:a copy "$outputPath"';
 
       Log.info('📹 Executing FFmpeg square crop command: $command',
           name: 'VineRecordingController', category: LogCategory.system);
@@ -1226,7 +1244,8 @@ class VineRecordingController {
 
       // Execute FFmpeg concatenation with square (1:1) aspect ratio CENTER cropping
       // Vine-style videos must be square format, centered crop for best framing
-      final command = '-f concat -safe 0 -i "$concatFilePath" -vf "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2" -c:a copy "$outputPath"';
+      final cropFilter = _buildCropFilter(_aspectRatio);
+      final command = '-f concat -safe 0 -i "$concatFilePath" -vf "$cropFilter" -c:a copy "$outputPath"';
 
       Log.info('📹 Executing FFmpeg command: $command',
           name: 'VineRecordingController', category: LogCategory.system);
