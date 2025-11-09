@@ -31,26 +31,40 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     final isAuthenticated = authService.isAuthenticated;
 
     return Scaffold(
-        backgroundColor: Colors.black,
-        body: SafeArea(
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF00AB82),
+                Color(0xFF009870),
+              ],
+            ),
+          ),
+          child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                 const SizedBox(height: 40),
-                // App branding - diVine wordmark
+                // App branding - diVine icon
                 Image.asset(
-                  'assets/icon/White on black.png',
-                  height: 60,
+                  'assets/icon/divine_icon_transparent.png',
+                  height: 320,
                   fit: BoxFit.contain,
                 ),
-                const SizedBox(height: 24),
                 Text(
-                  'Welcome to diVine',
+                  'diVine',
                   style: GoogleFonts.pacifico(
-                    fontSize: 32,
-                    color: Colors.white,
+                    fontSize: 64,
+                    color: const Color(0xFFF5F6EA),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -199,6 +213,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               ],
             ),
           ),
+            ),
+          ),
+        ),
         ),
       );
   }

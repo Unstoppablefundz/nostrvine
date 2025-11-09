@@ -191,6 +191,7 @@ flutter:
     - assets/icon/Ivory on Green.png
     - assets/icon/Black on white.png
     - assets/icon/Green on ivory.png
+    - assets/icon/divine_icon_transparent.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
