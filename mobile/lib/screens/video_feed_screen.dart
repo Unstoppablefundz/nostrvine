@@ -49,10 +49,12 @@ class VideoFeedScreen extends ConsumerStatefulWidget {
     this.startingVideo,
     this.context = FeedContext.general,
     this.contextValue,
+    this.disableNavigation = false,
   });
   final VideoEvent? startingVideo;
   final FeedContext context;
   final String? contextValue;
+  final bool disableNavigation; // Set to true to prevent context.go() calls (e.g., for deep links)
 
   @override
   ConsumerState<VideoFeedScreen> createState() => _VideoFeedScreenState();
@@ -240,9 +242,11 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen>
     // Prefetch videos around current position for instant playback
     checkForPrefetch(currentIndex: index, videos: videos);
 
-    // Update URL to trigger derived provider chain:
+    // Update URL to trigger derived provider chain (unless navigation is disabled for deep links)
     // context.go() → routerLocationStream → pageContextProvider → activeVideoIdProvider → VideoFeedItem reacts
-    context.go('/home/$index');
+    if (!widget.disableNavigation) {
+      context.go('/home/$index');
+    }
   }
 
   // Legacy methods removed - active video is now derived from URL via activeVideoIdProvider
