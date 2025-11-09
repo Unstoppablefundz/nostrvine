@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import LibProofMode
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -39,14 +40,46 @@ import UIKit
           return
         }
 
-        NSLog("🔐 ProofMode: generateProof called for: \(mediaPath)")
+        NSLog("🔐 ProofMode: Generating proof for: \(mediaPath)")
 
-        // TODO: Integrate ProofMode iOS library when available
-        // For now, iOS ProofMode is not yet implemented
-        // The iOS port at https://gitlab.com/guardianproject/proofmode/proofmode-ios
-        // does not have a published CocoaPods library yet
-        NSLog("⚠️ ProofMode: iOS library not yet available - returning null")
-        result(nil)
+        do {
+          // Create MediaItem from file URL
+          let fileURL = URL(fileURLWithPath: mediaPath)
+          guard FileManager.default.fileExists(atPath: mediaPath) else {
+            result(FlutterError(
+              code: "FILE_NOT_FOUND",
+              message: "Media file does not exist: \(mediaPath)",
+              details: nil
+            ))
+            return
+          }
+
+          let mediaItem = try MediaItem(url: fileURL)
+
+          // Configure proof generation options
+          // Include device ID, location (if available), and network info
+          let options = ProofGenerationOptions(
+            includeDeviceIdentifier: true,
+            includeLocation: true,
+            includeNetworkInfo: true
+          )
+
+          // Generate proof using LibProofMode
+          try Proof.shared.process(mediaItem, options: options)
+
+          // Return the SHA256 hash (used as proof identifier)
+          let proofHash = mediaItem.sha256
+          NSLog("🔐 ProofMode: Proof generated successfully: \(proofHash)")
+          result(proofHash)
+
+        } catch {
+          NSLog("❌ ProofMode: Proof generation failed: \(error.localizedDescription)")
+          result(FlutterError(
+            code: "PROOF_GENERATION_FAILED",
+            message: error.localizedDescription,
+            details: nil
+          ))
+        }
 
       case "getProofDir":
         guard let args = call.arguments as? [String: Any],
@@ -59,21 +92,30 @@ import UIKit
           return
         }
 
-        NSLog("🔐 ProofMode: getProofDir called for hash: \(proofHash)")
-        NSLog("⚠️ ProofMode: iOS library not yet available - returning null")
-        result(nil)
+        NSLog("🔐 ProofMode: Getting proof directory for hash: \(proofHash)")
+
+        // ProofMode stores proof in documents directory under hash subfolder
+        let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+        let proofDirPath = (documentsPath as NSString).appendingPathComponent(proofHash)
+
+        if FileManager.default.fileExists(atPath: proofDirPath) {
+          NSLog("🔐 ProofMode: Proof directory found: \(proofDirPath)")
+          result(proofDirPath)
+        } else {
+          NSLog("⚠️ ProofMode: Proof directory not found for hash: \(proofHash)")
+          result(nil)
+        }
 
       case "isAvailable":
-        // iOS ProofMode library is not yet available
-        // When integrated, this should return true
-        NSLog("🔐 ProofMode: isAvailable check - currently false on iOS")
-        result(false)
+        // iOS ProofMode library is now available
+        NSLog("🔐 ProofMode: isAvailable check - true (LibProofMode installed)")
+        result(true)
 
       default:
         result(FlutterMethodNotImplemented)
       }
     }
 
-    NSLog("✅ ProofMode: Platform channel registered (iOS stub implementation)")
+    NSLog("✅ ProofMode: Platform channel registered with LibProofMode")
   }
 }
