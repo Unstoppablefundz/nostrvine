@@ -7,7 +7,7 @@ import 'package:openvine/models/notification_model.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/router/nav_extensions.dart';
 import 'package:openvine/screens/pure/explore_video_screen_pure.dart';
-import 'package:openvine/theme/app_theme.dart';
+import 'package:openvine/theme/vine_theme.dart';
 import 'package:openvine/utils/unified_logger.dart';
 import 'package:openvine/widgets/notification_list_item.dart';
 
@@ -44,36 +44,64 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
       children: [
         // Tab bar for filtering notifications
         Container(
-          color: Colors.black,
-          child: TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            indicatorColor: DivineTheme.primaryPurple,
-            labelColor: DivineTheme.primaryPurple,
-            unselectedLabelColor: Colors.grey,
-            onTap: (index) {
-              setState(() {
-                switch (index) {
-                  case 0:
-                    _selectedFilter = null;
-                  case 1:
-                    _selectedFilter = NotificationType.like;
-                  case 2:
-                    _selectedFilter = NotificationType.comment;
-                  case 3:
-                    _selectedFilter = NotificationType.follow;
-                  case 4:
-                    _selectedFilter = NotificationType.repost;
-                }
-              });
+          color: VineTheme.cardBackground,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final tabWidth = constraints.maxWidth / 5;
+              return TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                indicatorColor: VineTheme.whiteText,
+                indicatorWeight: 3,
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: VineTheme.whiteText,
+                unselectedLabelColor: VineTheme.whiteText.withValues(alpha: 0.7),
+                labelStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+                onTap: (index) {
+                  setState(() {
+                    switch (index) {
+                      case 0:
+                        _selectedFilter = null;
+                      case 1:
+                        _selectedFilter = NotificationType.like;
+                      case 2:
+                        _selectedFilter = NotificationType.comment;
+                      case 3:
+                        _selectedFilter = NotificationType.follow;
+                      case 4:
+                        _selectedFilter = NotificationType.repost;
+                    }
+                  });
+                },
+                tabs: [
+                  SizedBox(
+                    width: tabWidth,
+                    child: const Tab(text: 'All'),
+                  ),
+                  SizedBox(
+                    width: tabWidth,
+                    child: const Tab(text: 'Likes'),
+                  ),
+                  SizedBox(
+                    width: tabWidth,
+                    child: const Tab(text: 'Comments'),
+                  ),
+                  SizedBox(
+                    width: tabWidth,
+                    child: const Tab(text: 'Follows'),
+                  ),
+                  SizedBox(
+                    width: tabWidth,
+                    child: const Tab(text: 'Reposts'),
+                  ),
+                ],
+              );
             },
-            tabs: const [
-              Tab(text: 'All'),
-              Tab(text: 'Likes'),
-              Tab(text: 'Comments'),
-              Tab(text: 'Follows'),
-              Tab(text: 'Reposts'),
-            ],
           ),
         ),
         // Notification list
