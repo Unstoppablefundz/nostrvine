@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:openvine/providers/app_providers.dart';
 import 'package:openvine/screens/blossom_settings_screen.dart';
 import 'package:openvine/screens/notification_settings_screen.dart';
@@ -96,14 +97,11 @@ class _VineDrawerState extends ConsumerState<VineDrawer> {
                       icon: Icons.person,
                       title: 'Edit Profile',
                       onTap: () {
+                        print('🔍 NAV DEBUG: VineDrawer.Edit Profile - about to push /edit-profile');
+                        print('🔍 NAV DEBUG: Current location: ${GoRouterState.of(context).uri}');
                         Navigator.pop(context); // Close drawer
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const ProfileSetupScreen(isNewUser: false),
-                          ),
-                        );
+                        context.push('/edit-profile');
+                        print('🔍 NAV DEBUG: Returned from push /edit-profile');
                       },
                     ),
                     const Divider(color: Colors.grey, height: 1),
@@ -116,12 +114,7 @@ class _VineDrawerState extends ConsumerState<VineDrawer> {
                     title: 'Settings',
                     onTap: () {
                       Navigator.pop(context); // Close drawer
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SettingsScreen(),
-                        ),
-                      );
+                      context.push('/settings');
                     },
                   ),
                   _buildDrawerItem(

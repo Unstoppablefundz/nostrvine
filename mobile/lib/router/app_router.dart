@@ -21,6 +21,7 @@ import 'package:openvine/screens/profile_setup_screen.dart';
 import 'package:openvine/screens/settings_screen.dart';
 import 'package:openvine/screens/video_detail_screen.dart';
 import 'package:openvine/screens/video_editor_screen.dart';
+import 'package:openvine/screens/vine_drafts_screen.dart';
 import 'package:openvine/screens/welcome_screen.dart';
 import 'package:openvine/services/video_stop_navigator_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,7 +39,7 @@ final _hashtagGridKey = GlobalKey<NavigatorState>(debugLabel: 'hashtag-grid');
 final _hashtagFeedKey = GlobalKey<NavigatorState>(debugLabel: 'hashtag-feed');
 
 /// Maps URL location to bottom nav tab index
-/// Returns -1 for non-tab routes (like search) to hide bottom nav
+/// Returns -1 for non-tab routes (like search, settings, edit-profile) to hide bottom nav
 int tabIndexFromLocation(String loc) {
   final uri = Uri.parse(loc);
   final first = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
@@ -54,7 +55,14 @@ int tabIndexFromLocation(String loc) {
     case 'profile':
       return 3;
     case 'search':
-      return -1; // Search has AppBar but no bottom nav
+    case 'settings':
+    case 'edit-profile':
+    case 'setup-profile':
+    case 'camera':
+    case 'drafts':
+    case 'followers':
+    case 'following':
+      return -1; // Non-tab routes - no bottom nav
     default:
       return 0; // fallback to home
   }
@@ -304,12 +312,29 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/edit-profile',
         name: 'edit-profile',
-        builder: (_, __) => const ProfileSetupScreen(isNewUser: false),
+        builder: (context, state) {
+          print('🔍 ROUTE DEBUG: /edit-profile route builder called');
+          print('🔍 ROUTE DEBUG: state.uri = ${state.uri}');
+          print('🔍 ROUTE DEBUG: state.matchedLocation = ${state.matchedLocation}');
+          print('🔍 ROUTE DEBUG: state.fullPath = ${state.fullPath}');
+          return const ProfileSetupScreen(isNewUser: false);
+        },
       ),
       GoRoute(
         path: '/setup-profile',
         name: 'setup-profile',
-        builder: (_, __) => const ProfileSetupScreen(isNewUser: true),
+        builder: (context, state) {
+          print('🔍 ROUTE DEBUG: /setup-profile route builder called');
+          print('🔍 ROUTE DEBUG: state.uri = ${state.uri}');
+          print('🔍 ROUTE DEBUG: state.matchedLocation = ${state.matchedLocation}');
+          print('🔍 ROUTE DEBUG: state.fullPath = ${state.fullPath}');
+          return const ProfileSetupScreen(isNewUser: true);
+        },
+      ),
+      GoRoute(
+        path: '/drafts',
+        name: 'drafts',
+        builder: (_, __) => const VineDraftsScreen(),
       ),
       // Followers screen
       GoRoute(

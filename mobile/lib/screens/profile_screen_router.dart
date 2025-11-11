@@ -84,8 +84,8 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
   }
 
   void _navigateToFollowers(BuildContext context, String pubkey, String displayName) {
-    Navigator.push(
-      context,
+    // Navigate using root navigator to escape shell route
+    Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (context) => FollowersScreen(pubkey: pubkey, displayName: displayName),
       ),
@@ -93,8 +93,8 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
   }
 
   void _navigateToFollowing(BuildContext context, String pubkey, String displayName) {
-    Navigator.push(
-      context,
+    // Navigate using root navigator to escape shell route
+    Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (context) => FollowingScreen(pubkey: pubkey, displayName: displayName),
       ),
@@ -543,29 +543,10 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
           Row(
             children: [
               // Profile picture
-              Container(
-                width: 86,
-                height: 86,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [Colors.purple, Colors.pink, Colors.orange],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: ClipOval(
-                  child: SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: UserAvatar(
-                      imageUrl: profilePictureUrl,
-                      name: null,
-                      size: 80,
-                    ),
-                  ),
-                ),
+              UserAvatar(
+                imageUrl: profilePictureUrl,
+                name: null,
+                size: 86,
               ),
 
               const SizedBox(width: 20),
@@ -579,7 +560,7 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
                       profileStatsAsync.hasValue
                           ? profileStatsAsync.value!.videoCount
                           : null,
-                      'Vines',
+                      'Videos',
                       profileStatsAsync.isLoading,
                       onTap: null, // Videos aren't tappable
                     ),
@@ -1206,19 +1187,17 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
   // Action methods
 
   Future<void> _setupProfile() async {
-    await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(
-        builder: (context) => const ProfileSetupScreen(isNewUser: true),
-      ),
-    );
+    print('🔍 NAV DEBUG: ProfileScreenRouter._setupProfile() - about to push /setup-profile');
+    print('🔍 NAV DEBUG: Current location: ${GoRouterState.of(context).uri}');
+    await context.push('/setup-profile');
+    print('🔍 NAV DEBUG: Returned from push /setup-profile');
   }
 
   Future<void> _editProfile() async {
-    await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(
-        builder: (context) => const ProfileSetupScreen(isNewUser: false),
-      ),
-    );
+    print('🔍 NAV DEBUG: ProfileScreenRouter._editProfile() - about to push /edit-profile');
+    print('🔍 NAV DEBUG: Current location: ${GoRouterState.of(context).uri}');
+    await context.push('/edit-profile');
+    print('🔍 NAV DEBUG: Returned from push /edit-profile');
   }
 
   Future<void> _shareProfile(String userIdHex) async {
@@ -1261,12 +1240,7 @@ class _ProfileScreenRouterState extends ConsumerState<ProfileScreenRouter>
   }
 
   void _openDrafts() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const VineDraftsScreen(),
-      ),
-    );
+    context.go('/drafts');
   }
 
   Future<void> _followUser(String pubkey) async {
