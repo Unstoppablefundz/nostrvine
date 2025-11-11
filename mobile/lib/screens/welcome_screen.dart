@@ -61,16 +61,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                   height: MediaQuery.of(context).size.width < 600 ? 224 : 320,
                   fit: BoxFit.contain,
                 ),
-                // No spacing on phones, keep spacing on tablets
-                if (MediaQuery.of(context).size.width >= 600)
-                  const SizedBox(height: 0),
-                Text(
-                  'Divine',
-                  style: GoogleFonts.pacifico(
-                    fontSize: MediaQuery.of(context).size.width < 600 ? 48 : 64,
-                    color: const Color(0xFFF5F6EA),
-                  ),
-                  textAlign: TextAlign.center,
+                const SizedBox(height: 16),
+                // Wordmark logo
+                Image.asset(
+                  'assets/icon/White cropped.png',
+                  width: MediaQuery.of(context).size.width < 600 ? 200 : 280,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 16),
                 const Text(
