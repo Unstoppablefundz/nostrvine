@@ -111,7 +111,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
   void _onTabChanged() {
     if (!mounted) return;
 
-    final tabNames = ['new_videos', 'popular_videos', 'editors_pick'];
+    final tabNames = ['new_videos', 'popular_videos', 'lists'];
     final tabName = tabNames[_tabController.index];
 
     Log.debug('🎯 ExploreScreenPure: Switched to tab ${_tabController.index}',
@@ -126,12 +126,12 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
       tabName: tabName,
     );
 
-    // Refresh Divine Team when that tab becomes active
-    // This ensures the provider checks for newly fetched videos
-    if (_tabController.index == 2) { // Divine Team tab
-      Log.debug('🔄 Refreshing Divine Team provider on tab change',
+    // Lists tab doesn't need provider refresh currently
+    // TODO: When Lists tab has real content, add list provider refresh here
+    if (_tabController.index == 2) { // Lists tab
+      Log.debug('🔄 Lists tab activated',
           category: LogCategory.video);
-      ref.read(curationProvider.notifier).refreshAll();
+      // ref.read(listsProvider.notifier).refreshAll(); // TODO: implement
     }
 
     // Exit feed or hashtag mode when user switches tabs
@@ -254,7 +254,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
             tabs: const [
               Tab(text: 'New Videos'),
               Tab(text: 'Popular Videos'),
-              Tab(text: 'Divine Team'),
+              Tab(text: 'Lists'),
             ],
           ),
         ),
@@ -291,7 +291,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
               children: [
                 _buildNewVinesTab(),
                 _buildTrendingTab(),
-                _buildEditorsPickTab(),
+                _buildListsTab(),
               ],
             ),
             // New videos banner (only show on New Videos and Popular Videos tabs)
@@ -339,6 +339,50 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
     );
   }
 
+  Widget _buildListsTab() {
+    // Placeholder for Lists tab - will be implemented with full list browsing UI
+    return Container(
+      key: const Key('lists-tab-content'),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.library_books, size: 64, color: VineTheme.secondaryText),
+            const SizedBox(height: 16),
+            Text(
+              'Lists',
+              style: TextStyle(
+                color: VineTheme.primaryText,
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Discover curated video and user lists',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: VineTheme.secondaryText,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Coming soon: Browse lists, follow lists,\nand create your own!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: VineTheme.secondaryText,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Keep Divine Team functionality for now - will migrate to a list
+  // ignore: unused_element
   Widget _buildEditorsPickTab() {
     // Watch editor's picks from curation provider
     final editorsPicks = ref.watch(editorsPicksProvider);
@@ -736,8 +780,9 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
             category: LogCategory.video);
 
         // Refresh the appropriate provider based on tab
-        if (tabName == 'Divine Team') {
-          await ref.read(curationProvider.notifier).refreshAll();
+        if (tabName == 'Lists') {
+          // TODO: Implement lists provider refresh when Lists tab has real content
+          // await ref.read(listsProvider.notifier).refreshAll();
         } else if (tabName == "New Videos") {
           // Refresh popular now feed - call refresh() to force new subscription
           await ref.read(popularNowFeedProvider.notifier).refresh();
