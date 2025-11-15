@@ -1,6 +1,8 @@
 import Flutter
 import UIKit
 import LibProofMode
+import ZendeskCoreSDK
+import SupportSDK
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -12,6 +14,9 @@ import LibProofMode
 
     // Set up ProofMode platform channel
     setupProofModeChannel()
+
+    // Set up Zendesk platform channel
+    setupZendeskChannel()
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -127,5 +132,96 @@ import LibProofMode
     }
 
     NSLog("✅ ProofMode: Platform channel registered with LibProofMode")
+  }
+
+  private func setupZendeskChannel() {
+    guard let controller = window?.rootViewController as? FlutterViewController else {
+      NSLog("❌ Zendesk: Could not get FlutterViewController")
+      return
+    }
+
+    let channel = FlutterMethodChannel(
+      name: "com.openvine/zendesk_support",
+      binaryMessenger: controller.binaryMessenger
+    )
+
+    channel.setMethodCallHandler { [weak self] (call, result) in
+      guard let self = self,
+            let controller = self.window?.rootViewController as? FlutterViewController else {
+        result(FlutterError(code: "NO_CONTROLLER", message: "FlutterViewController not available", details: nil))
+        return
+      }
+
+      switch call.method {
+      case "initialize":
+        guard let args = call.arguments as? [String: Any],
+              let appId = args["appId"] as? String,
+              let clientId = args["clientId"] as? String,
+              let zendeskUrl = args["zendeskUrl"] as? String else {
+          result(FlutterError(
+            code: "INVALID_ARGUMENT",
+            message: "appId, clientId, and zendeskUrl are required",
+            details: nil
+          ))
+          return
+        }
+
+        NSLog("🎫 Zendesk: Initializing with URL: \(zendeskUrl)")
+
+        // Initialize Zendesk Core SDK
+        Zendesk.initialize(appId: appId, clientId: clientId, zendeskUrl: zendeskUrl)
+
+        // Initialize Support SDK
+        Support.initialize(withZendesk: Zendesk.instance)
+
+        // Set anonymous identity by default
+        let identity = Identity.createAnonymous()
+        Zendesk.instance?.setIdentity(identity)
+
+        NSLog("✅ Zendesk: Initialized successfully")
+        result(true)
+
+      case "showNewTicket":
+        let args = call.arguments as? [String: Any]
+        let subject = args?["subject"] as? String ?? ""
+        let description = args?["description"] as? String ?? ""
+        let tags = args?["tags"] as? [String] ?? []
+
+        NSLog("🎫 Zendesk: Showing new ticket screen")
+
+        // Configure request UI
+        let config = RequestUiConfiguration()
+        config.subject = subject
+        config.tags = tags
+
+        // Build request screen
+        let requestScreen = RequestUi.buildRequestUi(with: [config])
+
+        // Present modally
+        controller.present(requestScreen, animated: true) {
+          NSLog("✅ Zendesk: Ticket screen presented")
+        }
+
+        result(true)
+
+      case "showTicketList":
+        NSLog("🎫 Zendesk: Showing ticket list screen")
+
+        // Build request list screen
+        let requestListScreen = RequestUi.buildRequestList()
+
+        // Present modally
+        controller.present(requestListScreen, animated: true) {
+          NSLog("✅ Zendesk: Ticket list presented")
+        }
+
+        result(true)
+
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    NSLog("✅ Zendesk: Platform channel registered")
   }
 }
