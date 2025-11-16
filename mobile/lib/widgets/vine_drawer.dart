@@ -401,8 +401,16 @@ class _VineDrawerState extends ConsumerState<VineDrawer> {
               title: 'Report a Bug',
               subtitle: 'Technical issues with the app',
               onTap: () {
+                // Capture provider values BEFORE popping the dialog
+                final bugReportService = ref.read(bugReportServiceProvider);
+                final userPubkey = authService.currentPublicKeyHex;
                 Navigator.pop(context);
-                _handleBugReport(context, ref, authService, isZendeskAvailable);
+                _handleBugReportWithServices(
+                  context,
+                  bugReportService,
+                  userPubkey,
+                  isZendeskAvailable,
+                );
               },
             ),
             const SizedBox(height: 12),
@@ -412,8 +420,16 @@ class _VineDrawerState extends ConsumerState<VineDrawer> {
               title: 'Report Content',
               subtitle: 'Inappropriate videos or users',
               onTap: () {
+                // Capture provider values BEFORE popping the dialog
+                final bugReportService = ref.read(bugReportServiceProvider);
+                final userPubkey = authService.currentPublicKeyHex;
                 Navigator.pop(context);
-                _handleContentReport(context, ref, authService, isZendeskAvailable);
+                _handleContentReportWithServices(
+                  context,
+                  bugReportService,
+                  userPubkey,
+                  isZendeskAvailable,
+                );
               },
             ),
             const SizedBox(height: 12),
@@ -518,15 +534,12 @@ class _VineDrawerState extends ConsumerState<VineDrawer> {
   }
 
   /// Handle bug report submission
-  Future<void> _handleBugReport(
+  Future<void> _handleBugReportWithServices(
     BuildContext context,
-    WidgetRef ref,
-    dynamic authService,
+    dynamic bugReportService,
+    String? userPubkey,
     bool isZendeskAvailable,
   ) async {
-    // Capture provider values BEFORE any async operations
-    final bugReportService = ref.read(bugReportServiceProvider);
-    final userPubkey = authService.currentPublicKeyHex;
 
     if (isZendeskAvailable) {
       // Get device and app info
@@ -561,15 +574,12 @@ Platform: ${Theme.of(context).platform.name}
   }
 
   /// Handle content report submission
-  Future<void> _handleContentReport(
+  Future<void> _handleContentReportWithServices(
     BuildContext context,
-    WidgetRef ref,
-    dynamic authService,
+    dynamic bugReportService,
+    String? userPubkey,
     bool isZendeskAvailable,
   ) async {
-    // Capture provider values BEFORE any async operations
-    final bugReportService = ref.read(bugReportServiceProvider);
-    final userPubkey = authService.currentPublicKeyHex;
 
     if (isZendeskAvailable) {
       final description = '''
